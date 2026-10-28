@@ -37,7 +37,7 @@ type mimePart struct {
 	data []byte
 }
 
-func jpegFromResponse(contentType string, data []byte) ([]byte, error) {
+func imageFromResponse(contentType string, data []byte, format string) ([]byte, error) {
 	kind, params, err := mime.ParseMediaType(contentType)
 	if err != nil {
 		return nil, errors.New("无效的响应 Content-Type")
@@ -134,8 +134,17 @@ func jpegFromResponse(contentType string, data []byte) ([]byte, error) {
 	}
 	for _, part := range parts {
 		if part.id == id {
-			if !bytes.HasPrefix(part.data, []byte{0xff, 0xd8, 0xff}) || !bytes.HasSuffix(part.data, []byte{0xff, 0xd9}) {
-				return nil, errors.New("附件不是完整的 JPEG")
+			switch format {
+			case formatJPEG:
+				if !bytes.HasPrefix(part.data, []byte{0xff, 0xd8, 0xff}) || !bytes.HasSuffix(part.data, []byte{0xff, 0xd9}) {
+					return nil, errors.New("附件不是完整的 JPEG")
+				}
+			case formatTIFF:
+				if !bytes.HasPrefix(part.data, []byte{'I', 'I', 42, 0}) && !bytes.HasPrefix(part.data, []byte{'M', 'M', 0, 42}) {
+					return nil, errors.New("附件不是 TIFF")
+				}
+			default:
+				return nil, errors.New("不支持的图像格式")
 			}
 			return part.data, nil
 		}

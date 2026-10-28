@@ -80,7 +80,7 @@ func scanPages(ctx context.Context, c *client, opts options, output string, sing
 				}
 			}
 			absolute, _ := filepath.Abs(path)
-			fmt.Fprintf(stdout, "已保存：%s\n尺寸：%d × %d 像素；JPEG 图像 %d 字节\n", absolute, result.Width, result.Height, result.Bytes)
+			fmt.Fprintf(stdout, "已保存：%s\n尺寸：%d × %d 像素；图像 %d 字节\n", absolute, result.Width, result.Height, result.Bytes)
 		}
 		if wait == nil {
 			return nil

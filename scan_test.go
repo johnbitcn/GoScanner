@@ -19,12 +19,52 @@ func defaultOptions() options {
 	return options{DPI: 300, Mode: "color", Area: region{Width: 8268, Height: 11693}}
 }
 
+func TestTicketRegions(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		area string
+		max  size
+		want region
+	}{
+		{"full platen", "full", size{8503, 11732}, region{0, 0, 8503, 11732}},
+		{"case insensitive", "FULL", size{8503, 11732}, region{0, 0, 8503, 11732}},
+		{"smaller platen", "full", size{7001, 9003}, region{0, 0, 7001, 9003}},
+		{"explicit A4", "a4", size{8503, 11732}, region{0, 0, 8268, 11693}},
+		{"custom region", "10,10,50,50", size{8503, 11732}, region{394, 394, 1969, 1969}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cap, err := parseInfo(fixture(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			cap.MaxSize = tc.max
+			opts := defaultOptions()
+			opts.Area, err = parseArea(tc.area)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := ticket(cap, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{
+				fmt.Sprintf("<w:InputMediaSize><w:Width>%d</w:Width><w:Height>%d</w:Height></w:InputMediaSize>", tc.want.X+tc.want.Width, tc.want.Y+tc.want.Height),
+				fmt.Sprintf("<w:ScanRegionXOffset>%d</w:ScanRegionXOffset><w:ScanRegionYOffset>%d</w:ScanRegionYOffset><w:ScanRegionWidth>%d</w:ScanRegionWidth><w:ScanRegionHeight>%d</w:ScanRegionHeight>", tc.want.X, tc.want.Y, tc.want.Width, tc.want.Height),
+			} {
+				if !strings.Contains(data, want) {
+					t.Errorf("ticket missing %s: %s", want, data)
+				}
+			}
+		})
+	}
+}
+
 func TestAreaAndTicketValidation(t *testing.T) {
 	cap, err := parseInfo(fixture(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, text := range []string{"a4", "10,20,100,100"} {
+	for _, text := range []string{"full", "a4", "10,20,100,100"} {
 		area, err := parseArea(text)
 		if err != nil {
 			t.Fatal(err)
@@ -35,7 +75,7 @@ func TestAreaAndTicketValidation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, text := range []string{"", "a3", "1,2,3", "NaN,0,1,1", "0,Inf,1,1", "0,0,-1,1", "0,0,0,1", "1e50,0,1,1"} {
+	for _, text := range []string{"", "a3", "1,2,3", "NaN,0,1,1", "0,Inf,1,1", "0,0,-1,1", "0,0,0,0", "0,0,0,1", "1e50,0,1,1"} {
 		if _, err := parseArea(text); err == nil {
 			t.Errorf("accepted area %q", text)
 		}
@@ -46,6 +86,7 @@ func TestAreaAndTicketValidation(t *testing.T) {
 		func(o *options) { o.Area.X = -1 },
 	} {
 		opts := defaultOptions()
+		opts.Area = region{Width: 8268, Height: 11693}
 		mutate(&opts)
 		if _, err := ticket(cap, opts); err == nil {
 			t.Fatalf("accepted options %+v", opts)

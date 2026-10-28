@@ -1,15 +1,15 @@
 # GoScanner
 
-面向 HP Laser MFP 1188w 的 macOS WSD 命令行扫描工具。使用 Go 标准库，不需要 Python、HP 驱动、Avahi 或 SANE。
+面向 HP Laser MFP 1188w 的 macOS WSD 命令行扫描工具。使用 Go 标准库和 `golang.org/x/image/tiff`，不需要 Python、HP 驱动、Avahi 或 SANE。
 
-已实现 WSD 自动发现、能力查询、IP/端点地址配置、分辨率/色彩/区域选择、单页 JPEG、手动连续扫描、超时与取消、安全保存。当前仍只支持 WSD 扫描，不支持 eSCL-only 设备。
+已实现 WSD 自动发现、能力查询、IP/端点地址配置、分辨率/色彩/区域选择、JPEG/TIFF/PNG 图像输出、PDF、手动连续扫描、超时与取消、安全保存。当前仍只支持 WSD 扫描，不支持 eSCL-only 设备。
 
 ## 快速开始
 
 在 `GoScanner/goscanner/` 仓库中执行：
 
 ```bash
-# 构建。本机开发使用 Go 1.27.3，go.mod 声明最低 Go 1.22。
+# 构建。本机开发使用 Go 1.27.3，go.mod 声明最低 Go 1.26.0。
 CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 
 # 发现本机直连 IPv4 局域网中的 WSD 扫描仪，不扫描；输出 JSON。
@@ -33,6 +33,13 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 # 保存到其他目录；已有文件不会被覆盖。
 ./bin/goscanner scan -o ~/Desktop/scan.jpg --timeout 2m
 
+# 保存设备原生未压缩 TIFF，或由 TIFF 无损转换为 PNG。
+./bin/goscanner scan -o scans/document.tiff
+./bin/goscanner scan -o scans/document.png
+
+# 显式扫描完整平板，默认仍为 A4。
+./bin/goscanner scan --area full -o scans/full.png
+
 # 手动连续扫描：立即扫描第一页，换页后按任意键继续，单独按 Esc 结束。
 # 依次保存 scans/document-001.jpg、scans/document-002.jpg 等。
 ./bin/goscanner scan --manual -o scans/document.jpg
@@ -48,7 +55,7 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 
 本机已生成：
 
-- `bin/goscanner`：Darwin arm64，已在本机运行与扫描。
+- `bin/goscanner`：Darwin arm64；JPEG 的历史实机验证见下文，新增 TIFF/PNG 尚未实机扫描验证。
 - `bin/goscanner-darwin-amd64`：Darwin amd64，已交叉编译，尚未在 Intel Mac 上运行验证。
 
 这些构建不需要第三方运行库。尚未做 Developer ID 分发签名或公证。
@@ -64,10 +71,12 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 | `--timeout` | discover 为 `10s`；其他为 `2m` | 默认限制整体任务，包含发现；手动模式分别限制发现和每页扫描，不包含换页等待；失败取消清理最多额外等待 10 秒 |
 | `--dpi` | `300` | 仅 scan；必须同时被设备的横向和纵向能力列表支持 |
 | `--mode` | `color` | 仅 scan；`color` 或 `gray` |
-| `--area` | `a4` | 仅 scan；`a4` 或 `x,y,width,height`，单位毫米 |
-| `-o` | 自动生成 JPEG 路径 | 仅 scan；新 `.jpg`、`.jpeg` 或 `.pdf` 文件路径，扩展名不区分大小写 |
-| `--manual` | `false` | 仅 scan；手动换页，JPEG 按页保存，PDF 默认合并为一个文档 |
+| `--area` | `a4` | 仅 scan；A4，或指定 `full`、`x,y,width,height`（毫米） |
+| `-o` | 自动生成 JPEG 路径 | 仅 scan；新 `.jpg`、`.jpeg`、`.tif`、`.tiff`、`.png` 或 `.pdf` 文件路径，扩展名不区分大小写 |
+| `--manual` | `false` | 仅 scan；手动换页，JPEG/TIFF/PNG 按页保存，PDF 默认合并为一个文档 |
 | `--single-page` | `false` | 仅用于 PDF；每页独立保存，连续扫描时文件名带序号 |
+
+**默认扫描区域已恢复为 `a4`（210 × 297 mm）。** `--area full` 继续保留：直接使用设备声明的最大平板范围，不通过毫米换算。HP 1188w 声明的范围约为 216 × 298 mm。完整平板可能包含纸外背景，不能恢复设备不可扫描边缘的内容；程序不自动识别纸张边缘或二次裁切。
 
 区域坐标原点为平板左上角，毫米值会转换为 WSD 的 1/1000 英寸单位。宽高必须大于零，区域必须落在设备声明的范围内。`info` 的 `min_size` / `max_size` 使用 `size_unit` 指定的原始单位。
 
@@ -75,7 +84,16 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 
 - `RGB24` 对应 `color`，`Grayscale8` 对应 `gray`。
 - 设备声明 `BlackAndWhite1`，但本次原生黑白 + JPEG 实测返回 `ClientErrorNoImagesAvailable`。因此没有开放 `--mode bw`，也不会悄悄降级为灰度或再创建一个任务。
-- TIFF、PNG、自动进纸与图形界面不属于本阶段。
+- TIFF 和 PNG 都要求设备声明支持 `tiff-single-uncompressed`。缺少该能力时，在创建扫描任务前报错，不降级为 JPEG。
+- 自动进纸与图形界面尚未实现。
+
+## TIFF 与 PNG 输出
+
+- `.tif` / `.tiff`：请求设备原生单页未压缩 TIFF，完整解码校验后原样保存附件字节，不重新编码。
+- `.png`：同样请求原生 TIFF，解码后用 Go PNG 编码器无损保存；不经过 JPEG，不改变像素尺寸，不裁切或缩放。程序没有另外写入 PNG 的 DPI 元数据。
+- 不指定 `-o` 时，仍保存为 JPEG；JPEG 和 PDF 继续请求 `jfif`，PDF 直接嵌入原始 JPEG。
+- `--manual -o scans/document.tiff` 或 `--manual -o scans/document.png` 分别生成 `document-001.tiff` / `.png` 等文件；不合并为多页 TIFF。`--single-page` 仍只用于 PDF。
+- 彩色和灰度均已通过模拟设备测试；覆盖原生 TIFF 字节不变、PNG 逐像素一致、大小写扩展名、连续扫描、损坏/超限图像拒绝、文件冲突和失败清理。**设备声明支持不等于组合已经实测，TIFF/PNG 尚未做真实设备扫描验证。**
 
 ## 手动连续扫描
 
@@ -129,7 +147,7 @@ PDF 已通过模拟扫描测试、文档结构检查，并在本机使用 `qpdf`
 - 读取扫描服务真实地址，不假定端口 8018。结果按扫描端点去重和排序，同一设备若确有多个不同端点，可能显示多项；此时要求显式选择。
 - 元数据地址与扫描地址都必须是响应源 IP 上的无凭据 HTTP 地址。不会访问设备顺带发布的其他 IP、外部 URL 或 DNS 名称。
 - 有接口或元数据失败时，`discover` 在 stderr 输出警告，stdout 仍输出成功发现的 JSON 数组。自动 info/scan 遇到这些警告会拒绝自动选择，避免把不完整结果当成完整设备列表。
-- 发现成功仅表示设备发布了 WSD 扫描服务；`info`/`scan` 仍要验证本工具所需的平板/JPEG 能力。
+- 发现成功仅表示设备发布了 WSD 扫描服务；`info`/`scan` 仍要读取平板能力，扫描前还要验证请求的格式、色彩、分辨率与区域。
 - 不支持 IPv6 多播发现、WS-Discovery 2009、eSCL-only、HTTPS-only、仅发布主机名的发现地址、仅提供 URN/引用参数而无绝对 HTTP 扫描端点的服务、跨子网发现或仅靠 USB 的设备。
 - 设备休眠、Wi-Fi 客户端隔离、VPN、防火墙或系统局域网权限可能影响发现。可先唤醒设备，或用显式 `--host` / `--endpoint`。没有后台常驻服务或发现缓存。
 
@@ -148,7 +166,7 @@ PDF 已通过模拟扫描测试、文档结构检查，并在本机使用 `qpdf`
 | 指定已存在的成功图像作为输出 | 拒绝，原文件哈希未变，没有创建新扫描任务 |
 | 原生黑白 75 DPI + JPEG | 失败；已取消任务，本阶段不开放该模式 |
 
-请求尺寸与返回像素可能因固件对齐而略有差异。程序保存设备返回的图像，不擅自裁切、缩放。程序会使用 Go JPEG 解码器完整验证图像；独立的 macOS ImageIO 解码检查也已通过。没有判断纸张内容、文字清晰度或色彩准确性。
+请求尺寸与返回像素可能因固件对齐而略有差异。程序保存设备返回的图像，不擅自裁切、缩放。程序会完整解码验证 JPEG 或 TIFF；此前 JPEG 的独立 macOS ImageIO 解码检查也已通过。没有判断纸张内容、文字清晰度或色彩准确性。
 
 实测期间首次 Go 能力查询曾返回 HTTP 400。随后原请求成功，多种请求格式对照没有复现该错误，因此未给它编造原因或添加未经证实的修复。程序不会自动重试创建任务。
 
@@ -160,10 +178,10 @@ PDF 已通过模拟扫描测试、文档结构检查，并在本机使用 `qpdf`
 - 若创建请求断线、任务编号尚未返回，不能可靠取消未知任务。先查询状态，不要立即反复扫描。
 - 不自动重试，避免重复创建任务。
 - 同一用户下，本机多个进程通过端点锁避免同时扫描同一地址。锁位于 macOS 用户缓存目录 `~/Library/Caches/goscanner/`，不包含图像或任务令牌。锁只约束本工具，不能阻止 Windows 或其他客户端同时扫描。
-- 图像先写入输出目录中的私有 `.goscanner-*.jpg.part` 文件，完整解码、写盘并关闭后，通过硬链接原子发布最终路径。创建目标路径时不会覆盖已有文件，即使该文件是扫描期间才被其他进程创建的。
-- 发生正常错误或中断时清理未完成暂存文件；强制杀死进程或断电可能留下 `.part`，但不会发布半张 JPEG。
+- 图像先写入输出目录中的私有 `.goscanner-*.<扩展名>.part` 文件，完整解码、写盘并关闭后，通过硬链接原子发布最终路径。创建目标路径时不会覆盖已有文件，即使该文件是扫描期间才被其他进程创建的。
+- 发生正常错误或中断时清理未完成暂存文件；强制杀死进程或断电可能留下 `.part`，但不会发布不完整图像。
 - 若最终文件发布失败，已经完成的图像会保留在错误信息指出的暂存路径，便于恢复。输出文件系统须支持硬链接；当前项目所在文件系统已验证支持。
-- 下载响应最多 64 MiB，SOAP XML 最多 1 MiB，JPEG 最多 4000 万像素。超时不是对本地解码、PDF 合并和文件系统调用的硬实时抢占保证。
+- 下载响应最多 64 MiB，SOAP XML 最多 1 MiB，源 JPEG/TIFF 最多 4000 万像素。超时不是对本地图像解码/编码、PDF 合并和文件系统调用的硬实时抢占保证。
 - PDF 同样先写盘、关闭，再用硬链接独占发布。PDF 和图像文件权限为 `0600`，新建输出目录和图像暂存目录权限为 `0700`。合并期间需要容纳原始 JPEG 和完整 PDF 的磁盘空间。
 
 ## 固件兼容性与网络边界
@@ -188,6 +206,6 @@ CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -o bin/goscanner-darwi
 
 新增测试覆盖连续两页、每页超时与换页等待、文件冲突、后续页失败保留前页，以及 macOS 下的按键序列、终端恢复、CLI 的 Esc/Ctrl+C 退出码和无控制终端拒绝启动。Linux 按键行为尚未实测。
 
-当前只有标准库依赖。锁实现针对 Darwin/Linux；Linux 未做实机扫描验证，Windows 构建未实现。最低 Go 1.22 版本尚未单独测试。
+新增 `golang.org/x/image v0.47.0` 用于 TIFF 编解码；该安全版本要求 Go 1.26.0，因此同步提高源码构建要求。锁实现针对 Darwin/Linux；Linux 未做实机扫描验证，Windows 构建未实现。最低 Go 1.26 版本尚未单独测试。
 
 源码按功能放在同一 `main` 包中，没有额外的服务层、插件框架或配置文件。`testdata/scanner-elements.xml` 来自此前成功的只读能力查询，不含扫描任务令牌。
