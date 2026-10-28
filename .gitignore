@@ -1,0 +1,8 @@
+/bin/
+/scans/
+/verification/
+/coverage.out
+*.test
+*.jpg
+*.jpeg
+.goscanner-*.jpg.part
