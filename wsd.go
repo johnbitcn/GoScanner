@@ -76,7 +76,7 @@ func escape(s string) string {
 	return b.String()
 }
 
-func soapResponse(data []byte, name string) (*element, error) {
+func soapEnvelope(data []byte) (*element, error) {
 	if len(data) > maxXML || bytes.Contains(bytes.ToUpper(data), []byte("<!DOCTYPE")) {
 		return nil, errors.New("SOAP XML 超出限制或包含 DOCTYPE")
 	}
@@ -110,7 +110,15 @@ func soapResponse(data []byte, name string) (*element, error) {
 		}
 		return nil, fmt.Errorf("WSD 错误：%s", message)
 	}
-	response := body.child(scanNS, name)
+	return &root, nil
+}
+
+func soapResponse(data []byte, name string) (*element, error) {
+	root, err := soapEnvelope(data)
+	if err != nil {
+		return nil, err
+	}
+	response := root.child(soapNS, "Body").child(scanNS, name)
 	if response == nil {
 		return nil, fmt.Errorf("缺少 SOAP 响应 %s", name)
 	}
@@ -127,35 +135,86 @@ func newClient(host string) (*client, error) {
 	if err != nil {
 		return nil, errors.New("--host 必须是 IP 地址，不是 URL 或主机名")
 	}
+	endpoint := url.URL{Scheme: "http", Host: net.JoinHostPort(ip.Unmap().String(), "8018"), Path: "/wsd/scan"}
+	return newEndpointClient(endpoint.String())
+}
+
+// A discovery reply may only send us back to its own source IP, never another host.
+func checkedEndpoint(raw string, peer netip.Addr) (string, error) {
+	if len(raw) > 4096 {
+		return "", errors.New("WSD 地址超过 4096 字节限制")
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "http" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" {
+		return "", errors.New("WSD 地址必须是无凭据、查询参数或片段的 HTTP URL")
+	}
+	ip, err := netip.ParseAddr(u.Hostname())
+	if err != nil || ip.IsUnspecified() || ip.IsMulticast() {
+		return "", errors.New("WSD 地址必须使用有效的单播 IP")
+	}
+	ip = ip.Unmap()
+	if peer.IsValid() && ip != peer.Unmap() {
+		return "", errors.New("拒绝访问与发现响应源 IP 不同的地址")
+	}
+	port := u.Port()
+	if port == "" {
+		port = "80"
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return "", errors.New("WSD 地址端口无效")
+	}
+	u.Host = net.JoinHostPort(ip.String(), strconv.Itoa(n))
+	if u.Path == "" {
+		u.Path = "/"
+	}
+	return u.String(), nil
+}
+
+func newEndpointClient(raw string) (*client, error) {
+	endpoint, err := checkedEndpoint(raw, netip.Addr{})
+	if err != nil {
+		return nil, err
+	}
 	transport := &http.Transport{
 		Proxy:                  nil, // Keep LAN scan jobs out of HTTP_PROXY/HTTPS_PROXY.
 		DialContext:            (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
 		DisableKeepAlives:      true,
 		MaxResponseHeaderBytes: 1 << 20,
 	}
-	endpoint := url.URL{Scheme: "http", Host: net.JoinHostPort(ip.String(), "8018"), Path: "/wsd/scan"}
 	return &client{
-		endpoint: endpoint.String(),
+		endpoint: endpoint,
 		http: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		}},
 	}, nil
 }
 
-func (c *client) post(ctx context.Context, action, payload string) (string, []byte, error) {
+func newMessageID() (string, error) {
 	var id [16]byte
 	if _, err := rand.Read(id[:]); err != nil {
-		return "", nil, err
+		return "", err
 	}
 	id[6] = (id[6] & 0x0f) | 0x40
 	id[8] = (id[8] & 0x3f) | 0x80
-	messageID := fmt.Sprintf("urn:uuid:%x-%x-%x-%x-%x", id[:4], id[4:6], id[6:8], id[8:10], id[10:])
+	return fmt.Sprintf("urn:uuid:%x-%x-%x-%x-%x", id[:4], id[4:6], id[6:8], id[8:10], id[10:]), nil
+}
+
+func (c *client) post(ctx context.Context, action, payload string) (string, []byte, error) {
+	messageID, err := newMessageID()
+	if err != nil {
+		return "", nil, err
+	}
+	actionURI := scanNS + "/" + action
+	if action == "GetMetadata" {
+		actionURI = "http://schemas.xmlsoap.org/ws/2004/09/transfer/Get"
+	}
 	body := fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="%s" xmlns:a="%s" xmlns:w="%s">
 <s:Header><a:MessageID>%s</a:MessageID><a:To>%s</a:To>
 <a:ReplyTo><a:Address>%s/role/anonymous</a:Address></a:ReplyTo>
-<a:Action>%s/%s</a:Action></s:Header><s:Body>%s</s:Body></s:Envelope>`,
-		soapNS, addrNS, scanNS, messageID, escape(c.endpoint), addrNS, scanNS, action, payload)
+<a:Action>%s</a:Action></s:Header><s:Body>%s</s:Body></s:Envelope>`,
+		soapNS, addrNS, scanNS, messageID, escape(c.endpoint), addrNS, actionURI, payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, strings.NewReader(body))
 	if err != nil {
 		return "", nil, err

@@ -10,21 +10,26 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
 
-const usage = `GoScanner — HP Laser MFP 1188w 的 WSD 扫描工具
+const usage = `GoScanner — WSD 局域网扫描工具
 
 用法：
-  goscanner info [--host 192.168.1.8] [--timeout 2m]
-  goscanner scan [--host 192.168.1.8] [--dpi 300] [--mode color]
+  goscanner discover [--timeout 10s]
+  goscanner info [--host IP | --endpoint URL] [--timeout 2m]
+  goscanner scan [--host IP | --endpoint URL] [--dpi 300] [--mode color]
                  [--area a4] [-o scans/output.jpg] [--timeout 2m]
 
+未指定设备时自动发现：只有一个扫描端点且发现过程完整时才使用它；多项时停止并列出地址。
+--host：显式使用该 IP 的 http://IP:8018/wsd/scan，保留原用法。
+--endpoint：显式使用 discover 返回的完整 HTTP 扫描地址。
 --mode：color、gray
 --area：a4 或 x,y,width,height（毫米，原点为平板左上角）
-info 只读取能力；scan 会直接启动一次扫描。已有文件不会被覆盖。
-Ctrl+C 会尝试取消本客户端创建的任务；不会自动重试。
+discover/info 不启动扫描；scan 会直接启动一次扫描。已有文件不会被覆盖。
+Ctrl+C 会尝试取消本客户端创建的任务；不会自动重试扫描任务。
 `
 
 func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
@@ -33,14 +38,22 @@ func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	command := args[0]
-	if command != "info" && command != "scan" {
-		fmt.Fprintln(stderr, "未知命令：使用 info 或 scan")
+	if command != "info" && command != "scan" && command != "discover" {
+		fmt.Fprintln(stderr, "未知命令：使用 discover、info 或 scan")
 		return 2
 	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	host := flags.String("host", "192.168.1.8", "打印机 IP 地址")
-	timeout := flags.Duration("timeout", 2*time.Minute, "整体任务超时；失败清理最多额外等待 10 秒")
+	defaultTimeout := 2 * time.Minute
+	if command == "discover" {
+		defaultTimeout = 10 * time.Second
+	}
+	timeout := flags.Duration("timeout", defaultTimeout, "整体任务超时；失败清理最多额外等待 10 秒")
+	var host, endpoint string
+	if command != "discover" {
+		flags.StringVar(&host, "host", "", "显式指定打印机 IP，端口固定 8018；与 --endpoint 互斥")
+		flags.StringVar(&endpoint, "endpoint", "", "完整 HTTP 扫描地址；未指定设备时自动发现")
+	}
 	var dpi *int
 	var mode, area, output *string
 	if command == "scan" {
@@ -55,17 +68,82 @@ func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 		return 2
 	}
-	if flags.NArg() != 0 || *timeout <= 0 {
-		fmt.Fprintln(stderr, "不能使用多余的位置参数；--timeout 必须大于零")
+	badAddress := false
+	flags.Visit(func(f *flag.Flag) {
+		if (f.Name == "host" || f.Name == "endpoint") && f.Value.String() == "" {
+			badAddress = true
+		}
+	})
+	if flags.NArg() != 0 || *timeout <= 0 || (host != "" && endpoint != "") || badAddress {
+		fmt.Fprintln(stderr, "地址不能空置；--host 与 --endpoint 互斥；不能使用多余的位置参数；--timeout 必须大于零")
 		return 2
 	}
-	c, err := newClient(*host)
+	var opts options
+	if command == "scan" {
+		r, err := parseArea(*area)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		if *dpi <= 0 || (*mode != "color" && *mode != "gray") {
+			fmt.Fprintln(stderr, "--dpi 必须大于零；JPEG 模式目前只开放 color、gray")
+			return 2
+		}
+		if *output == "" {
+			*output = filepath.Join("scans", "scan-"+time.Now().Format("20060102-150405.000000000")+".jpg")
+		}
+		if ext := strings.ToLower(filepath.Ext(*output)); ext != ".jpg" && ext != ".jpeg" {
+			fmt.Fprintln(stderr, "输出扩展名必须是 .jpg 或 .jpeg")
+			return 1
+		}
+		opts = options{DPI: *dpi, Mode: *mode, Area: r}
+	}
+	ctx, cancel := context.WithTimeout(parent, *timeout)
+	defer cancel()
+	var c *client
+	var err error
+	if host != "" {
+		c, err = newClient(host)
+	} else if endpoint != "" {
+		c, err = newEndpointClient(endpoint)
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	ctx, cancel := context.WithTimeout(parent, *timeout)
-	defer cancel()
+	if c == nil {
+		devices, warnings, findErr := discover(ctx)
+		for _, warning := range warnings {
+			fmt.Fprintf(stderr, "发现警告：%q\n", warning)
+		}
+		if findErr != nil {
+			fmt.Fprintln(stderr, "发现失败：", findErr)
+			return exitCode(parent)
+		}
+		if command == "discover" {
+			encoder := json.NewEncoder(stdout)
+			encoder.SetIndent("", "  ")
+			if err := encoder.Encode(devices); err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
+			return 0
+		}
+		endpoint, err = chooseDevice(devices, warnings)
+		if err != nil {
+			for _, device := range devices {
+				fmt.Fprintf(stderr, "%q  %s\n", device.Name, device.Endpoint)
+			}
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		c, err = newEndpointClient(endpoint)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintln(stderr, "自动选择：", endpoint)
+	}
 	if command == "info" {
 		cap, err := c.info(ctx)
 		if err == nil {
@@ -79,20 +157,8 @@ func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
-	r, err := parseArea(*area)
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 2
-	}
-	if *dpi <= 0 || (*mode != "color" && *mode != "gray") {
-		fmt.Fprintln(stderr, "--dpi 必须大于零；JPEG 模式目前只开放 color、gray")
-		return 2
-	}
-	if *output == "" {
-		*output = filepath.Join("scans", "scan-"+time.Now().Format("20060102-150405.000000000")+".jpg")
-	}
 	fmt.Fprintln(stderr, "检查能力并扫描；请勿断电。Ctrl+C 可取消。")
-	result, err := c.scan(ctx, options{DPI: *dpi, Mode: *mode, Area: r}, *output)
+	result, err := c.scan(ctx, opts, *output)
 	if err != nil {
 		fmt.Fprintln(stderr, "扫描失败：", err)
 		fmt.Fprintln(stderr, "未自动重试；若创建任务时断线，请先检查扫描器状态。")

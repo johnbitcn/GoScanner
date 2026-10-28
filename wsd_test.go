@@ -67,13 +67,17 @@ func testClient(t *testing.T, handler func(http.ResponseWriter, *http.Request, s
 			return
 		}
 		action := envelope.child(soapNS, "Header").child(addrNS, "Action").text()
-		if !strings.HasPrefix(action, scanNS+"/") {
+		if action == "http://schemas.xmlsoap.org/ws/2004/09/transfer/Get" {
+			action = "GetMetadata"
+		} else if strings.HasPrefix(action, scanNS+"/") {
+			action = strings.TrimPrefix(action, scanNS+"/")
+		} else {
 			t.Errorf("invalid SOAP action: %q", action)
 		}
 		if r.Method != "POST" || r.URL.Path != "/wsd/scan" || r.Header.Get("User-Agent") != "WSDAPI" {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
-		handler(w, r, strings.TrimPrefix(action, scanNS+"/"), data)
+		handler(w, r, action, data)
 	}))
 	t.Cleanup(server.Close)
 	c, err := newClient("127.0.0.1")

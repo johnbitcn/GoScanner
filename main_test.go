@@ -4,6 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -19,6 +24,11 @@ func TestCLIValidation(t *testing.T) {
 		{[]string{"info", "--host", "http://192.168.1.8"}, 2},
 		{[]string{"info", "--timeout", "0s"}, 2}, {[]string{"info", "extra"}, 2},
 		{[]string{"scan", "-o", "not-jpeg.png"}, 1},
+		{[]string{"discover", "-h"}, 0}, {[]string{"discover", "--host", "127.0.0.1"}, 2},
+		{[]string{"info", "--host", ""}, 2}, {[]string{"info", "--endpoint", ""}, 2},
+		{[]string{"info", "--host", "127.0.0.1", "--endpoint", "http://127.0.0.1/wsd/scan"}, 2},
+		{[]string{"info", "--endpoint", "http://scanner.local/scan"}, 2},
+		{[]string{"info", "--endpoint", "http://user:password@127.0.0.1/scan"}, 2},
 	}
 	for _, tc := range cases {
 		t.Run(fmt.Sprint(tc.args), func(t *testing.T) {
@@ -32,5 +42,44 @@ func TestCLIValidation(t *testing.T) {
 	cancel()
 	if exitCode(ctx) != 130 || exitCode(context.Background()) != 1 {
 		t.Fatal("wrong cancellation exit code")
+	}
+}
+
+func TestCLIExplicitEndpoint(t *testing.T) {
+	for _, command := range []string{"info", "scan"} {
+		t.Run(command, func(t *testing.T) {
+			cap := fixture(t)
+			image := jpegSample(t)
+			c := testClient(t, func(w http.ResponseWriter, r *http.Request, action string, _ []byte) {
+				switch action {
+				case "GetScannerElements":
+					_, _ = w.Write(cap)
+				case "CreateScanJob":
+					io.WriteString(w, responseXML("CreateScanJobResponse", "<w:JobId>7</w:JobId><w:JobToken>dummy</w:JobToken>"))
+				case "RetrieveImage":
+					ct, data := mtom(image, "boundary", "cid:image@scanner")
+					w.Header().Set("Content-Type", ct)
+					_, _ = w.Write(data)
+				default:
+					t.Errorf("unexpected action %s", action)
+				}
+			})
+			args := []string{command, "--endpoint", c.endpoint}
+			output := filepath.Join(t.TempDir(), "scan.jpg")
+			if command == "scan" {
+				args = append(args, "-o", output)
+			}
+			var stdout, stderr bytes.Buffer
+			if code := run(context.Background(), args, &stdout, &stderr); code != 0 {
+				t.Fatalf("exit %d: %s", code, stderr.String())
+			}
+			if command == "scan" {
+				if _, err := os.Stat(output); err != nil {
+					t.Fatal(err)
+				}
+			} else if !strings.Contains(stdout.String(), `"state": "Idle"`) {
+				t.Fatal("missing capability JSON")
+			}
+		})
 	}
 }

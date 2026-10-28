@@ -1,5 +1,7 @@
 # 第一阶段验证记录
 
+> 本文保留第一阶段结果。后续已增加并验证 WSD 自动发现，见 [DISCOVERY-VERIFICATION.md](DISCOVERY-VERIFICATION.md)。下文“未验证自动发现”等范围描述仅指第一阶段。
+
 日期：2026-10-28。
 
 ## 环境

@@ -2,7 +2,7 @@
 
 面向 HP Laser MFP 1188w 的 macOS WSD 命令行扫描工具。使用 Go 标准库，不需要 Python、HP 驱动、Avahi 或 SANE。
 
-第一阶段已实现能力查询、IP 地址配置、分辨率/色彩/区域选择、单页 JPEG、超时与取消、安全保存。
+已实现 WSD 自动发现、能力查询、IP/端点地址配置、分辨率/色彩/区域选择、单页 JPEG、超时与取消、安全保存。当前仍只支持 WSD 扫描，不支持 eSCL-only 设备。
 
 ## 快速开始
 
@@ -12,11 +12,20 @@
 # 构建。本机开发使用 Go 1.27.3，go.mod 声明最低 Go 1.22。
 CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 
-# 只查询能力和状态，不扫描；输出 JSON。
-./bin/goscanner info --host 192.168.1.8
+# 发现本机直连 IPv4 局域网中的 WSD 扫描仪，不扫描；输出 JSON。
+./bin/goscanner discover
 
-# 默认：A4、300 DPI、彩色。运行后直接开始一次扫描。
-./bin/goscanner scan --host 192.168.1.8
+# 自动发现并查询唯一扫描仪的能力与状态，不扫描。
+./bin/goscanner info
+
+# 默认：自动选择唯一扫描仪，A4、300 DPI、彩色。运行后开始一次扫描。
+./bin/goscanner scan
+
+# 多设备时，显式复制 discover 返回的 endpoint，不猜测设备端口或路径。
+./bin/goscanner info --endpoint http://192.168.1.8:8018/wsd/scan
+
+# 兼容原用法：显式 IP，使用 HP 的固定端口与路径，不进行自动发现。
+./bin/goscanner info --host 192.168.1.8
 
 # 灰度，自定义区域：从左上角向右 10 mm、向下 10 mm，取 50 × 50 mm。
 ./bin/goscanner scan --dpi 150 --mode gray --area 10,10,50,50 -o scans/crop.jpg
@@ -27,7 +36,9 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 ./bin/goscanner --help
 ```
 
-默认地址为 `192.168.1.8`，端口固定为 `8018`，路径固定为 `/wsd/scan`。`--host` 接受 IP 地址，不接受 URL、用户名或主机名。暂不实现自动发现。
+**行为变更：不再默认连接 `192.168.1.8`。** 未指定 `--host` 或 `--endpoint` 时先自动发现；只在发现一项扫描端点且没有发现警告时使用它。多项、零项或发现不完整时停止，不会退回旧 IP，也不会选择列表第一项。
+
+显式 `--host IP` 保留旧用法：使用 `http://IP:8018/wsd/scan`。显式 `--endpoint URL` 支持发现得到的其他端口和路径。两者互斥，均跳过发现。地址必须使用 IP，不接受用户名、查询参数、片段或 DNS 主机名。
 
 默认文件保存到**当前工作目录**的 `scans/scan-时间戳.jpg`，不是二进制所在目录。
 
@@ -40,12 +51,13 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 
 ## 参数
 
-所有参数放在 `info` 或 `scan` 子命令之后。
+所有参数放在 `discover`、`info` 或 `scan` 子命令之后。
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `--host` | `192.168.1.8` | 打印机 IP 地址；两个子命令均可使用 |
-| `--timeout` | `2m` | 整体任务的 context 时限；失败取消清理最多额外等待 10 秒 |
+| `--host` | 无，自动发现 | info/scan；显式 IP，固定端口 8018 和路径 `/wsd/scan` |
+| `--endpoint` | 无，自动发现 | info/scan；完整 HTTP 扫描地址，与 --host 互斥 |
+| `--timeout` | discover 为 `10s`；其他为 `2m` | 整体任务的 context 时限，包含发现；失败取消清理最多额外等待 10 秒 |
 | `--dpi` | `300` | 仅 scan；必须同时被设备的横向和纵向能力列表支持 |
 | `--mode` | `color` | 仅 scan；`color` 或 `gray` |
 | `--area` | `a4` | 仅 scan；`a4` 或 `x,y,width,height`，单位毫米 |
@@ -58,6 +70,21 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 - `RGB24` 对应 `color`，`Grayscale8` 对应 `gray`。
 - 设备声明 `BlackAndWhite1`，但本次原生黑白 + JPEG 实测返回 `ClientErrorNoImagesAvailable`。因此没有开放 `--mode bw`，也不会悄悄降级为灰度或再创建一个任务。
 - TIFF、PNG、PDF、多页与图形界面不属于本阶段。
+
+## 局域网自动发现
+
+`discover` 使用 WS-Discovery 2005，通过活动、支持多播、非环回、非点对点接口上的 IPv4 地址，向 `239.255.255.250:3702` 发送通用与扫描器专用 Probe。两条 Probe 间隔约 0.5 秒，监听窗口为 3 秒，然后只读获取设备元数据。每个元数据请求最多 2 秒，同时最多 4 个请求。不是遍历网段或扫描端口。
+
+- 只处理与当前 Probe 的 MessageID 关联的回复。
+- 按实际 QName 命名空间识别 `ScanDeviceType`，再从元数据验证 `ScannerServiceType`，不会把只有打印服务的设备当成扫描仪。
+- 读取扫描服务真实地址，不假定端口 8018。结果按扫描端点去重和排序，同一设备若确有多个不同端点，可能显示多项；此时要求显式选择。
+- 元数据地址与扫描地址都必须是响应源 IP 上的无凭据 HTTP 地址。不会访问设备顺带发布的其他 IP、外部 URL 或 DNS 名称。
+- 有接口或元数据失败时，`discover` 在 stderr 输出警告，stdout 仍输出成功发现的 JSON 数组。自动 info/scan 遇到这些警告会拒绝自动选择，避免把不完整结果当成完整设备列表。
+- 发现成功仅表示设备发布了 WSD 扫描服务；`info`/`scan` 仍要验证本工具所需的平板/JPEG 能力。
+- 不支持 IPv6 多播发现、WS-Discovery 2009、eSCL-only、HTTPS-only、仅发布主机名的发现地址、仅提供 URN/引用参数而无绝对 HTTP 扫描端点的服务、跨子网发现或仅靠 USB 的设备。
+- 设备休眠、Wi-Fi 客户端隔离、VPN、防火墙或系统局域网权限可能影响发现。可先唤醒设备，或用显式 `--host` / `--endpoint`。没有后台常驻服务或发现缓存。
+
+本机已在 `en0` 发现 HP 1188w，并通过不带地址参数的 `info` 完成自动选择和能力读取。本轮发现验证不创建扫描任务。发现验证记录见 [DISCOVERY-VERIFICATION.md](DISCOVERY-VERIFICATION.md)。
 
 ## 已完成的实机验证
 
@@ -107,7 +134,7 @@ go vet ./...
 CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -o bin/goscanner-darwin-amd64 .
 ```
 
-默认测试只使用本地模拟 HTTP 服务和能力样本，不访问真实打印机、不启动扫描。`-race` 属于开发验证，需相应编译工具；发布的 `CGO_ENABLED=0` 二进制不需要这些工具。
+默认测试只使用环回地址上的模拟 UDP/HTTP 服务和能力样本，不向局域网发送多播、不访问真实打印机、不启动扫描。`-race` 属于开发验证，需相应编译工具；发布的 `CGO_ENABLED=0` 二进制不需要这些工具。
 
 当前只有标准库依赖。锁实现针对 Darwin/Linux；Linux 未做实机扫描验证，Windows 构建未实现。最低 Go 1.22 版本尚未单独测试。
 
