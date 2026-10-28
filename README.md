@@ -65,8 +65,9 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 | `--dpi` | `300` | 仅 scan；必须同时被设备的横向和纵向能力列表支持 |
 | `--mode` | `color` | 仅 scan；`color` 或 `gray` |
 | `--area` | `a4` | 仅 scan；`a4` 或 `x,y,width,height`，单位毫米 |
-| `-o` | 自动生成 | 仅 scan；新 `.jpg` 或 `.jpeg` 文件路径；手动模式用作文件名基准 |
-| `--manual` | `false` | 仅 scan；手动换页，每页保存为独立 JPEG |
+| `-o` | 自动生成 JPEG 路径 | 仅 scan；新 `.jpg`、`.jpeg` 或 `.pdf` 文件路径，扩展名不区分大小写 |
+| `--manual` | `false` | 仅 scan；手动换页，JPEG 按页保存，PDF 默认合并为一个文档 |
+| `--single-page` | `false` | 仅用于 PDF；每页独立保存，连续扫描时文件名带序号 |
 
 区域坐标原点为平板左上角，毫米值会转换为 WSD 的 1/1000 英寸单位。宽高必须大于零，区域必须落在设备声明的范围内。`info` 的 `min_size` / `max_size` 使用 `size_unit` 指定的原始单位。
 
@@ -74,7 +75,7 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 
 - `RGB24` 对应 `color`，`Grayscale8` 对应 `gray`。
 - 设备声明 `BlackAndWhite1`，但本次原生黑白 + JPEG 实测返回 `ClientErrorNoImagesAvailable`。因此没有开放 `--mode bw`，也不会悄悄降级为灰度或再创建一个任务。
-- TIFF、PNG、多页合并文件、自动进纸与图形界面不属于本阶段。
+- TIFF、PNG、自动进纸与图形界面不属于本阶段。
 
 ## 手动连续扫描
 
@@ -94,6 +95,30 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 `-o document.jpg` 是文件名基准，不生成无序号的 `document.jpg`。如果某个编号文件已存在，程序拒绝覆盖并停止，不跳过编号；重新扫描时请使用新的文件名基准。默认基准仍包含时间戳。
 
 新增模式已通过本机 macOS 伪终端按键测试和环回模拟扫描测试；尚未进行真实扫描仪连续换页验证。
+
+## 保存为 PDF
+
+用 `-o` 指定 `.pdf` 扩展名即可选择 PDF。不指定 `-o` 时仍默认保存 JPEG。
+
+```bash
+# 单次扫描：保存一页 PDF。
+./bin/goscanner scan -o scans/page.pdf
+
+# 连续扫描：按 Esc 结束后，按扫描顺序合并为一个 document.pdf。
+./bin/goscanner scan --manual -o scans/document.pdf
+
+# 单页模式：每页立即保存为独立 PDF，文件名为 page-001.pdf、page-002.pdf……
+./bin/goscanner scan --manual --single-page -o scans/page.pdf
+```
+
+- `--single-page` 仅用于 `.pdf` 输出；不启用 `--manual` 时，仍只扫描一次，使用指定的原文件名。
+- 合并 PDF 在结束时发布，不生成带序号的 PDF。Ctrl+C、换页等待失败或后续页扫描失败时，也会保存已经完成的页面；失败退出码不变。第一页未完成时不生成空 PDF。
+- PDF 直接嵌入扫描器返回的 JPEG，不重复压缩。每页纸张尺寸按实际像素尺寸和 `--dpi` 计算，支持彩色和灰度；不包含 OCR 文本层。
+- 合并前，完整 JPEG 保存在输出目录内的私有 `.goscanner-pdf-*` 暂存目录。PDF 保存成功后清理这些 JPEG；保存失败时保留并报告恢复路径。
+- 已有 PDF 不会被覆盖。文件名在扫描期间被其他程序占用时，保留完整 `.pdf.part` 和原始 JPEG，不覆盖新出现的文件。
+- 强制终止、进程崩溃或断电不会执行合并与清理，可能留下暂存图像；不能保证尚未完成的页面可恢复。
+
+PDF 已通过模拟扫描测试、文档结构检查，并在本机使用 `qpdf`、`pdfinfo` 和 `pdftoppm` 检查和渲染。用户已反馈 PDF 功能实测通过；具体测试模式和异常场景未单独记录。
 
 ## 局域网自动发现
 
@@ -138,7 +163,8 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 - 图像先写入输出目录中的私有 `.goscanner-*.jpg.part` 文件，完整解码、写盘并关闭后，通过硬链接原子发布最终路径。创建目标路径时不会覆盖已有文件，即使该文件是扫描期间才被其他进程创建的。
 - 发生正常错误或中断时清理未完成暂存文件；强制杀死进程或断电可能留下 `.part`，但不会发布半张 JPEG。
 - 若最终文件发布失败，已经完成的图像会保留在错误信息指出的暂存路径，便于恢复。输出文件系统须支持硬链接；当前项目所在文件系统已验证支持。
-- 下载响应最多 64 MiB，SOAP XML 最多 1 MiB，JPEG 最多 4000 万像素。超时不是对本地解码和文件系统调用的硬实时抢占保证。
+- 下载响应最多 64 MiB，SOAP XML 最多 1 MiB，JPEG 最多 4000 万像素。超时不是对本地解码、PDF 合并和文件系统调用的硬实时抢占保证。
+- PDF 同样先写盘、关闭，再用硬链接独占发布。PDF 和图像文件权限为 `0600`，新建输出目录和图像暂存目录权限为 `0700`。合并期间需要容纳原始 JPEG 和完整 PDF 的磁盘空间。
 
 ## 固件兼容性与网络边界
 

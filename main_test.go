@@ -24,6 +24,9 @@ func TestCLIValidation(t *testing.T) {
 		{[]string{"info", "--host", "http://192.168.1.8"}, 2},
 		{[]string{"info", "--timeout", "0s"}, 2}, {[]string{"info", "extra"}, 2},
 		{[]string{"scan", "-o", "not-jpeg.png"}, 1},
+		{[]string{"scan", "--single-page"}, 2},
+		{[]string{"scan", "--single-page", "-o", "scan.jpg"}, 2},
+		{[]string{"info", "--single-page"}, 2},
 		{[]string{"discover", "-h"}, 0}, {[]string{"discover", "--host", "127.0.0.1"}, 2},
 		{[]string{"info", "--host", ""}, 2}, {[]string{"info", "--endpoint", ""}, 2},
 		{[]string{"info", "--host", "127.0.0.1", "--endpoint", "http://127.0.0.1/wsd/scan"}, 2},
@@ -46,7 +49,7 @@ func TestCLIValidation(t *testing.T) {
 }
 
 func TestCLIExplicitEndpoint(t *testing.T) {
-	for _, command := range []string{"info", "scan"} {
+	for _, command := range []string{"info", "scan", "scan-pdf", "scan-pdf-single"} {
 		t.Run(command, func(t *testing.T) {
 			cap := fixture(t)
 			image := jpegSample(t)
@@ -64,16 +67,29 @@ func TestCLIExplicitEndpoint(t *testing.T) {
 					t.Errorf("unexpected action %s", action)
 				}
 			})
-			args := []string{command, "--endpoint", c.endpoint}
+			cliCommand := command
+			if strings.HasPrefix(command, "scan") {
+				cliCommand = "scan"
+			}
+			args := []string{cliCommand, "--endpoint", c.endpoint}
 			output := filepath.Join(t.TempDir(), "scan.jpg")
-			if command == "scan" {
+			if strings.HasPrefix(command, "scan-pdf") {
+				output = filepath.Join(filepath.Dir(output), "scan.PDF")
+			}
+			if cliCommand == "scan" {
 				args = append(args, "-o", output)
+			}
+			if command == "scan-pdf-single" {
+				args = append(args, "--single-page")
 			}
 			var stdout, stderr bytes.Buffer
 			if code := run(context.Background(), args, &stdout, &stderr); code != 0 {
 				t.Fatalf("exit %d: %s", code, stderr.String())
 			}
-			if command == "scan" {
+			if cliCommand == "scan" {
+				if strings.HasPrefix(command, "scan-pdf") {
+					assertPDF(t, output, 1)
+				}
 				if _, err := os.Stat(output); err != nil {
 					t.Fatal(err)
 				}

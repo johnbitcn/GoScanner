@@ -67,80 +67,110 @@ func TestManualCLIProcess(t *testing.T) {
 }
 
 func TestManualCLI(t *testing.T) {
-	for _, scenario := range []string{"escape", "two-pages", "ctrl-c", "no-terminal"} {
-		t.Run(scenario, func(t *testing.T) {
-			data, image := fixture(t), jpegSample(t)
-			var jobs atomic.Int32
-			c := testClient(t, func(w http.ResponseWriter, r *http.Request, action string, _ []byte) {
-				switch action {
-				case "GetScannerElements":
-					_, _ = w.Write(data)
-				case "CreateScanJob":
-					jobs.Add(1)
-					io.WriteString(w, responseXML("CreateScanJobResponse", "<w:JobId>7</w:JobId><w:JobToken>token</w:JobToken>"))
-				case "RetrieveImage":
-					ct, body := mtom(image, "boundary", "cid:image@scanner")
-					w.Header().Set("Content-Type", ct)
-					_, _ = w.Write(body)
-				default:
-					t.Errorf("unexpected action %s", action)
+	for _, format := range []string{"jpg", "pdf", "pdf-single-page"} {
+		for _, scenario := range []string{"escape", "two-pages", "ctrl-c", "no-terminal"} {
+			t.Run(format+"/"+scenario, func(t *testing.T) {
+				data, image := fixture(t), jpegSample(t)
+				var jobs atomic.Int32
+				c := testClient(t, func(w http.ResponseWriter, r *http.Request, action string, _ []byte) {
+					switch action {
+					case "GetScannerElements":
+						_, _ = w.Write(data)
+					case "CreateScanJob":
+						jobs.Add(1)
+						io.WriteString(w, responseXML("CreateScanJobResponse", "<w:JobId>7</w:JobId><w:JobToken>token</w:JobToken>"))
+					case "RetrieveImage":
+						ct, body := mtom(image, "boundary", "cid:image@scanner")
+						w.Header().Set("Content-Type", ct)
+						_, _ = w.Write(body)
+					default:
+						t.Errorf("unexpected action %s", action)
+					}
+				})
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				dir := t.TempDir()
+				ext := ".jpg"
+				if format != "jpg" {
+					ext = ".pdf"
+				}
+				path := filepath.Join(dir, "page"+ext)
+				args := []string{"-test.run=^TestManualCLIProcess$", "--", "scan", "--manual", "--endpoint", c.endpoint, "-o", path}
+				if format == "pdf-single-page" {
+					args = append(args, "--single-page")
+				}
+				cmd := exec.CommandContext(ctx, os.Args[0], args...)
+				cmd.Env = append(os.Environ(), "GOSCANNER_TEST_MANUAL_CHILD=1", "HOME="+dir, "XDG_CACHE_HOME="+dir)
+				cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+				keys, master := testKeyInput(t)
+				if scenario != "no-terminal" {
+					cmd.Stdin = keys.file
+					cmd.SysProcAttr.Setctty = true
+				}
+				output, err := cmd.StdoutPipe()
+				if err != nil {
+					t.Fatal(err)
+				}
+				cmd.Stderr = cmd.Stdout
+				if err := cmd.Start(); err != nil {
+					t.Fatal(err)
+				}
+				prompts := 0
+				var log strings.Builder
+				lines := bufio.NewScanner(output)
+				for lines.Scan() {
+					log.WriteString(lines.Text() + "\n")
+					if strings.Contains(lines.Text(), "请更换扫描页") {
+						prompts++
+						key := "\x1b"
+						if scenario == "two-pages" && prompts == 1 {
+							key = " "
+						} else if scenario == "ctrl-c" {
+							key = "\x03"
+						}
+						if _, err := master.Write([]byte(key)); err != nil {
+							t.Error(err)
+							cancel()
+						}
+					}
+				}
+				err = cmd.Wait()
+				wantCode, wantPages := 0, 1
+				if scenario == "two-pages" {
+					wantPages = 2
+				} else if scenario == "ctrl-c" {
+					wantCode = 130
+				} else if scenario == "no-terminal" {
+					wantCode, wantPages = 1, 0
+				}
+				if cmd.ProcessState.ExitCode() != wantCode || ctx.Err() != nil || jobs.Load() != int32(wantPages) {
+					t.Fatalf("exit=%d jobs=%d err=%v context=%v\n%s", cmd.ProcessState.ExitCode(), jobs.Load(), err, ctx.Err(), log.String())
+				}
+				files, _ := filepath.Glob(filepath.Join(dir, "page-*"+ext))
+				if format == "pdf" && wantPages > 0 {
+					assertPDF(t, path, wantPages)
+					if len(files) != 0 {
+						t.Fatal("merged PDF must not use numbered paths", files)
+					}
+				} else {
+					if len(files) != wantPages {
+						t.Fatalf("files=%v\n%s", files, log.String())
+					}
+					if format == "pdf-single-page" {
+						for _, file := range files {
+							assertPDF(t, file, 1)
+						}
+					}
+				}
+				if prompts != wantPages {
+					t.Fatalf("prompts=%d\n%s", prompts, log.String())
+				}
+				staged, _ := filepath.Glob(filepath.Join(dir, ".goscanner*"))
+				if len(staged) != 0 {
+					t.Fatal("staging leaked", staged)
 				}
 			})
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			dir := t.TempDir()
-			cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestManualCLIProcess$", "--", "scan", "--manual", "--endpoint", c.endpoint, "-o", filepath.Join(dir, "page.jpg"))
-			cmd.Env = append(os.Environ(), "GOSCANNER_TEST_MANUAL_CHILD=1", "HOME="+dir, "XDG_CACHE_HOME="+dir)
-			cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-			keys, master := testKeyInput(t)
-			if scenario != "no-terminal" {
-				cmd.Stdin = keys.file
-				cmd.SysProcAttr.Setctty = true
-			}
-			output, err := cmd.StdoutPipe()
-			if err != nil {
-				t.Fatal(err)
-			}
-			cmd.Stderr = cmd.Stdout
-			if err := cmd.Start(); err != nil {
-				t.Fatal(err)
-			}
-			prompts := 0
-			var log strings.Builder
-			lines := bufio.NewScanner(output)
-			for lines.Scan() {
-				log.WriteString(lines.Text() + "\n")
-				if strings.Contains(lines.Text(), "请更换扫描页") {
-					prompts++
-					key := "\x1b"
-					if scenario == "two-pages" && prompts == 1 {
-						key = " "
-					} else if scenario == "ctrl-c" {
-						key = "\x03"
-					}
-					if _, err := master.Write([]byte(key)); err != nil {
-						t.Error(err)
-						cancel()
-					}
-				}
-			}
-			err = cmd.Wait()
-			wantCode, wantPages := 0, 1
-			if scenario == "two-pages" {
-				wantPages = 2
-			} else if scenario == "ctrl-c" {
-				wantCode = 130
-			} else if scenario == "no-terminal" {
-				wantCode, wantPages = 1, 0
-			}
-			if cmd.ProcessState.ExitCode() != wantCode || ctx.Err() != nil || jobs.Load() != int32(wantPages) {
-				t.Fatalf("exit=%d jobs=%d err=%v context=%v\n%s", cmd.ProcessState.ExitCode(), jobs.Load(), err, ctx.Err(), log.String())
-			}
-			files, _ := filepath.Glob(filepath.Join(dir, "page-*.jpg"))
-			if len(files) != wantPages || prompts != wantPages {
-				t.Fatalf("files=%v prompts=%d\n%s", files, prompts, log.String())
-			}
-		})
+		}
 	}
 }
 
