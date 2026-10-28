@@ -21,7 +21,7 @@ const (
 	discoveryNS     = "http://schemas.xmlsoap.org/ws/2005/04/discovery"
 	metadataNS      = "http://schemas.xmlsoap.org/ws/2004/09/mex"
 	profileNS       = "http://schemas.xmlsoap.org/ws/2006/02/devprof"
-	discoveryWindow = 3 * time.Second
+	discoveryWindow = 4 * time.Second
 )
 
 type scannerDevice struct {
@@ -246,9 +246,9 @@ func probeInterface(ctx context.Context, network lanNetwork, target *net.UDPAddr
 		if ctx.Err() != nil {
 			return nil
 		}
-		// Space the two read-only probes instead of losing both in one burst.
-		if sent < len(messages) && !time.Now().Before(nextSend) {
-			if _, err := conn.WriteToUDP(messages[sent].data, target); err != nil {
+		// Retry read-only UDP probes, never scan jobs; keep IDs for reply correlation.
+		if sent < len(messages)*3 && !time.Now().Before(nextSend) {
+			if _, err := conn.WriteToUDP(messages[sent%len(messages)].data, target); err != nil {
 				return err
 			}
 			sent++

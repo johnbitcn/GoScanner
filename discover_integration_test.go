@@ -69,6 +69,67 @@ func TestDiscoveryPipelineOnLoopback(t *testing.T) {
 	}
 }
 
+func TestUDPProbeRetriesAfterLostReplies(t *testing.T) {
+	server, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	messages, err := discoveryProbes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverDone := make(chan error, 1)
+	go func() {
+		buffer := make([]byte, 8192)
+		var first string
+		for i := 0; i < 3; i++ {
+			_ = server.SetReadDeadline(time.Now().Add(2 * time.Second))
+			n, peer, err := server.ReadFromUDP(buffer)
+			if err != nil {
+				serverDone <- err
+				return
+			}
+			var root element
+			if err := xml.Unmarshal(buffer[:n], &root); err != nil {
+				serverDone <- err
+				return
+			}
+			id := root.child(soapNS, "Header").child(addrNS, "MessageID").text()
+			if i == 0 {
+				first = id
+			}
+			if i < 2 {
+				continue
+			} // Simulate loss of the first two replies.
+			if id != first {
+				serverDone <- fmt.Errorf("retry changed MessageID: %q vs %q", id, first)
+				return
+			}
+			_, err = server.WriteToUDP(probeReply(id, "http://127.0.0.1:8018/wsd", "w:ScanDeviceType"), peer)
+			serverDone <- err
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out := make(chan candidate, 4)
+	done := make(chan error, 1)
+	network := lanNetwork{"loopback-test", netip.MustParseAddr("127.0.0.1"), netip.MustParsePrefix("127.0.0.0/8")}
+	go func() { done <- probeInterface(ctx, network, server.LocalAddr().(*net.UDPAddr), messages, out) }()
+	select {
+	case <-out:
+	case <-ctx.Done():
+		t.Fatal("read-only UDP retry did not recover discovery")
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDiscoveryDeadlineAndNoInterfaces(t *testing.T) {
 	server, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {

@@ -73,7 +73,7 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 
 ## 局域网自动发现
 
-`discover` 使用 WS-Discovery 2005，通过活动、支持多播、非环回、非点对点接口上的 IPv4 地址，向 `239.255.255.250:3702` 发送通用与扫描器专用 Probe。两条 Probe 间隔约 0.5 秒，监听窗口为 3 秒，然后只读获取设备元数据。每个元数据请求最多 2 秒，同时最多 4 个请求。不是遍历网段或扫描端口。
+`discover` 使用 WS-Discovery 2005，通过活动、支持多播、非环回、非点对点接口上的 IPv4 地址，向 `239.255.255.250:3702` 发送通用与扫描器专用 Probe。通用和扫描器专用 Probe 间隔约 0.5 秒，各最多发送 3 次，监听窗口为 4 秒，然后只读获取设备元数据。该有限重发只用于只读发现，不用于扫描任务。每个元数据请求最多 2 秒，同时最多 4 个请求。不是遍历网段或扫描端口。
 
 - 只处理与当前 Probe 的 MessageID 关联的回复。
 - 按实际 QName 命名空间识别 `ScanDeviceType`，再从元数据验证 `ScannerServiceType`，不会把只有打印服务的设备当成扫描仪。
@@ -84,7 +84,7 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 - 不支持 IPv6 多播发现、WS-Discovery 2009、eSCL-only、HTTPS-only、仅发布主机名的发现地址、仅提供 URN/引用参数而无绝对 HTTP 扫描端点的服务、跨子网发现或仅靠 USB 的设备。
 - 设备休眠、Wi-Fi 客户端隔离、VPN、防火墙或系统局域网权限可能影响发现。可先唤醒设备，或用显式 `--host` / `--endpoint`。没有后台常驻服务或发现缓存。
 
-本机已在 `en0` 发现 HP 1188w，并通过不带地址参数的 `info` 完成自动选择和能力读取。本轮发现验证不创建扫描任务。发现验证记录见 [DISCOVERY-VERIFICATION.md](DISCOVERY-VERIFICATION.md)。
+本机已在 `en0` 发现 HP 1188w，并通过不带地址参数的 `info` 完成自动选择和能力读取。初版复核中曾有一次间歇性漏发现；加入有限重发后，连续五组 `discover` + 自动 `info` 均成功，但不能保证所有网络环境都不漏设备。本轮发现验证不创建扫描任务。发现验证记录见 [DISCOVERY-VERIFICATION.md](DISCOVERY-VERIFICATION.md)。
 
 ## 已完成的实机验证
 
