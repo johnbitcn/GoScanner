@@ -2,7 +2,7 @@
 
 面向 HP Laser MFP 1188w 的 macOS WSD 命令行扫描工具。使用 Go 标准库，不需要 Python、HP 驱动、Avahi 或 SANE。
 
-已实现 WSD 自动发现、能力查询、IP/端点地址配置、分辨率/色彩/区域选择、单页 JPEG、超时与取消、安全保存。当前仍只支持 WSD 扫描，不支持 eSCL-only 设备。
+已实现 WSD 自动发现、能力查询、IP/端点地址配置、分辨率/色彩/区域选择、单页 JPEG、手动连续扫描、超时与取消、安全保存。当前仍只支持 WSD 扫描，不支持 eSCL-only 设备。
 
 ## 快速开始
 
@@ -33,6 +33,10 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 # 保存到其他目录；已有文件不会被覆盖。
 ./bin/goscanner scan -o ~/Desktop/scan.jpg --timeout 2m
 
+# 手动连续扫描：立即扫描第一页，换页后按任意键继续，单独按 Esc 结束。
+# 依次保存 scans/document-001.jpg、scans/document-002.jpg 等。
+./bin/goscanner scan --manual -o scans/document.jpg
+
 ./bin/goscanner --help
 ```
 
@@ -57,11 +61,12 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 | --- | --- | --- |
 | `--host` | 无，自动发现 | info/scan；显式 IP，固定端口 8018 和路径 `/wsd/scan` |
 | `--endpoint` | 无，自动发现 | info/scan；完整 HTTP 扫描地址，与 --host 互斥 |
-| `--timeout` | discover 为 `10s`；其他为 `2m` | 整体任务的 context 时限，包含发现；失败取消清理最多额外等待 10 秒 |
+| `--timeout` | discover 为 `10s`；其他为 `2m` | 默认限制整体任务，包含发现；手动模式分别限制发现和每页扫描，不包含换页等待；失败取消清理最多额外等待 10 秒 |
 | `--dpi` | `300` | 仅 scan；必须同时被设备的横向和纵向能力列表支持 |
 | `--mode` | `color` | 仅 scan；`color` 或 `gray` |
 | `--area` | `a4` | 仅 scan；`a4` 或 `x,y,width,height`，单位毫米 |
-| `-o` | 自动生成 | 仅 scan；新 `.jpg` 或 `.jpeg` 文件路径 |
+| `-o` | 自动生成 | 仅 scan；新 `.jpg` 或 `.jpeg` 文件路径；手动模式用作文件名基准 |
+| `--manual` | `false` | 仅 scan；手动换页，每页保存为独立 JPEG |
 
 区域坐标原点为平板左上角，毫米值会转换为 WSD 的 1/1000 英寸单位。宽高必须大于零，区域必须落在设备声明的范围内。`info` 的 `min_size` / `max_size` 使用 `size_unit` 指定的原始单位。
 
@@ -69,7 +74,26 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 
 - `RGB24` 对应 `color`，`Grayscale8` 对应 `gray`。
 - 设备声明 `BlackAndWhite1`，但本次原生黑白 + JPEG 实测返回 `ClientErrorNoImagesAvailable`。因此没有开放 `--mode bw`，也不会悄悄降级为灰度或再创建一个任务。
-- TIFF、PNG、PDF、多页与图形界面不属于本阶段。
+- TIFF、PNG、多页合并文件、自动进纸与图形界面不属于本阶段。
+
+## 手动连续扫描
+
+```bash
+./bin/goscanner scan --manual --host 192.168.1.8 --mode gray -o ~/Desktop/document.jpg
+```
+
+1. 在平板上放好第一页，运行命令。程序立即扫描。
+2. 完整保存为 `document-001.jpg` 后，程序提示换页并等待按键。
+3. 更换扫描页，按任意键继续，无需回车。下一页保存为 `document-002.jpg`，序号可超过三位。方向键也可继续。
+4. 扫描完成后，在等待提示处单独按 `Esc`。程序显示已保存页数，并以退出码 0 结束。
+
+手动模式需要可访问 `/dev/tty` 的交互终端，不能在没有控制终端的后台任务中启动。`Ctrl+C` 仍表示取消，退出码为 130。程序在等待期间临时关闭逐行输入和按键回显，退出等待时恢复终端设置。扫描期间的输入会在下次等待前丢弃，不能提前排队扫描；`Esc` 仅在等待换页时用于正常结束。为区分方向键序列，单独 `Esc` 的识别可能延迟约 0.1 秒。
+
+`--timeout` 分别限制发现和每页扫描，不限制换页时间。每页都重新检查设备能力与状态。整个会话持有扫描器锁，避免本工具的其他进程在换页时插入任务。任何一页失败都会结束会话，不自动重试；之前完整保存的页面不删除。
+
+`-o document.jpg` 是文件名基准，不生成无序号的 `document.jpg`。如果某个编号文件已存在，程序拒绝覆盖并停止，不跳过编号；重新扫描时请使用新的文件名基准。默认基准仍包含时间戳。
+
+新增模式已通过本机 macOS 伪终端按键测试和环回模拟扫描测试；尚未进行真实扫描仪连续换页验证。
 
 ## 局域网自动发现
 
@@ -134,7 +158,9 @@ go vet ./...
 CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -o bin/goscanner-darwin-amd64 .
 ```
 
-默认测试只使用环回地址上的模拟 UDP/HTTP 服务和能力样本，不向局域网发送多播、不访问真实打印机、不启动扫描。`-race` 属于开发验证，需相应编译工具；发布的 `CGO_ENABLED=0` 二进制不需要这些工具。
+默认测试使用环回地址上的模拟 UDP/HTTP 服务和能力样本；macOS 下还使用本机伪终端，不向局域网发送多播、不访问真实打印机、不启动扫描。`-race` 属于开发验证，需相应编译工具；发布的 `CGO_ENABLED=0` 二进制不需要这些工具。
+
+新增测试覆盖连续两页、每页超时与换页等待、文件冲突、后续页失败保留前页，以及 macOS 下的按键序列、终端恢复、CLI 的 Esc/Ctrl+C 退出码和无控制终端拒绝启动。Linux 按键行为尚未实测。
 
 当前只有标准库依赖。锁实现针对 Darwin/Linux；Linux 未做实机扫描验证，Windows 构建未实现。最低 Go 1.22 版本尚未单独测试。
 

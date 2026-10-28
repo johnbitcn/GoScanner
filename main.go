@@ -21,7 +21,7 @@ const usage = `GoScanner — WSD 局域网扫描工具
   goscanner discover [--timeout 10s]
   goscanner info [--host IP | --endpoint URL] [--timeout 2m]
   goscanner scan [--host IP | --endpoint URL] [--dpi 300] [--mode color]
-                 [--area a4] [-o scans/output.jpg] [--timeout 2m]
+                 [--area a4] [-o scans/output.jpg] [--timeout 2m] [--manual]
 
 未指定设备时自动发现：只有一个扫描端点且发现过程完整时才使用它；多项时停止并列出地址。
 --host：显式使用该 IP 的 http://IP:8018/wsd/scan，保留原用法。
@@ -29,6 +29,8 @@ const usage = `GoScanner — WSD 局域网扫描工具
 --mode：color、gray
 --area：a4 或 x,y,width,height（毫米，原点为平板左上角）
 discover/info 不启动扫描；scan 会直接启动一次扫描。已有文件不会被覆盖。
+--manual：手动连续扫描；每页保存为带序号的 JPEG，换页后按任意键继续，单独按 Esc 结束。
+手动模式需要交互终端；--timeout 分别限制发现和每页扫描，不包含换页等待。
 Ctrl+C 会尝试取消本客户端创建的任务；不会自动重试扫描任务。
 `
 
@@ -48,7 +50,7 @@ func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
 	if command == "discover" {
 		defaultTimeout = 10 * time.Second
 	}
-	timeout := flags.Duration("timeout", defaultTimeout, "整体任务超时；失败清理最多额外等待 10 秒")
+	timeout := flags.Duration("timeout", defaultTimeout, "任务超时；手动模式按发现/每页分别计时；失败清理最多额外等待 10 秒")
 	var host, endpoint string
 	if command != "discover" {
 		flags.StringVar(&host, "host", "", "显式指定打印机 IP，端口固定 8018；与 --endpoint 互斥")
@@ -56,7 +58,9 @@ func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	var dpi *int
 	var mode, area, output *string
+	var manual bool
 	if command == "scan" {
+		flags.BoolVar(&manual, "manual", false, "手动连续扫描：换页后按任意键继续，Esc 结束")
 		dpi = flags.Int("dpi", 300, "扫描分辨率；必须是设备声明的值")
 		mode = flags.String("mode", "color", "color 或 gray")
 		area = flags.String("area", "a4", "a4 或 x,y,width,height（毫米）")
@@ -111,6 +115,15 @@ func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
+	var keys *keyInput
+	if manual {
+		keys, err = openKeyInput()
+		if err != nil {
+			fmt.Fprintln(stderr, "手动连续扫描需要交互终端：", err)
+			return 1
+		}
+		defer keys.file.Close()
+	}
 	if c == nil {
 		devices, warnings, findErr := discover(ctx)
 		for _, warning := range warnings {
@@ -157,15 +170,15 @@ func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
-	fmt.Fprintln(stderr, "检查能力并扫描；请勿断电。Ctrl+C 可取消。")
-	result, err := c.scan(ctx, opts, *output)
-	if err != nil {
-		fmt.Fprintln(stderr, "扫描失败：", err)
-		fmt.Fprintln(stderr, "未自动重试；若创建任务时断线，请先检查扫描器状态。")
+	var wait func(context.Context) (bool, error)
+	if manual {
+		ctx = parent // 换页等待不使用发现阶段的超时。
+		wait = func(ctx context.Context) (bool, error) { return keys.wait(ctx, stderr) }
+	}
+	if err := scanPages(ctx, c, opts, *output, *timeout, wait, stdout, stderr); err != nil {
+		fmt.Fprintln(stderr, err)
 		return exitCode(parent)
 	}
-	path, _ := filepath.Abs(*output)
-	fmt.Fprintf(stdout, "已保存：%s\n尺寸：%d × %d 像素；%d 字节\n", path, result.Width, result.Height, result.Bytes)
 	return 0
 }
 
