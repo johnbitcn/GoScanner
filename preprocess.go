@@ -139,14 +139,17 @@ func (p *imageProcessor) Process(picture image.Image) (image.Image, processingIn
 	}
 	if p.autocrop {
 		minx, miny, maxx, maxy := points[0].X, points[0].Y, points[0].X, points[0].Y
-		for _, pt := range points[1:] {
+		// Size padding to the detected object, not unused flatbed space.
+		margin := 3.0
+		for i, pt := range points {
 			minx = math.Min(minx, pt.X)
 			miny = math.Min(miny, pt.Y)
 			maxx = math.Max(maxx, pt.X)
 			maxy = math.Max(maxy, pt.Y)
+			next := points[(i+1)%len(points)]
+			margin = math.Max(margin, math.Hypot(next.X-pt.X, next.Y-pt.Y)*0.02)
 		}
 		cb := current.Bounds()
-		margin := math.Max(3, float64(max(w, h))*0.02)
 		crop := image.Rect(max(0, int(math.Floor(minx-margin))), max(0, int(math.Floor(miny-margin))), min(cb.Dx(), int(math.Ceil(maxx+margin))), min(cb.Dy(), int(math.Ceil(maxy+margin))))
 		if crop != image.Rect(0, 0, cb.Dx(), cb.Dy()) {
 			crop = crop.Add(cb.Min)

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"image/draw"
 	"math"
 	"testing"
 )
@@ -28,6 +29,56 @@ func rectangle(cx, cy, w, h, angle float64) documentDetection {
 	}
 	return d
 }
+func TestProcessorCropPaddingFollowsObject(t *testing.T) {
+	for name, bounds := range map[string]image.Rectangle{
+		"flatbed":        image.Rect(0, 0, 1000, 1200),
+		"larger flatbed": image.Rect(0, 0, 2000, 2400),
+	} {
+		t.Run(name, func(t *testing.T) {
+			img := image.NewRGBA(bounds)
+			draw.Draw(img, bounds, image.White, image.Point{}, draw.Src)
+			// The old flatbed-sized margin included this separate object.
+			draw.Draw(img, image.Rect(583, 330, 586, 333), image.NewUniform(color.RGBA{R: 255, A: 255}), image.Point{}, draw.Src)
+			for _, point := range []image.Point{{330, 340}, {570, 340}, {570, 660}, {330, 660}} {
+				img.SetRGBA(point.X, point.Y, color.RGBA{A: 255})
+			}
+			f := &fakeDetector{detection: rectangle(450, 500, 240, 320, 0)}
+			p := imageProcessor{detector: f, autocrop: true}
+			out, info, err := p.Process(img)
+			if err != nil || !info.Detected || !info.Changed || f.calls != 1 {
+				t.Fatalf("info=%+v calls=%d err=%v", info, f.calls, err)
+			}
+			if out.Bounds() != image.Rect(0, 0, 254, 334) {
+				t.Fatalf("padding changed with unused flatbed area: %v", out.Bounds())
+			}
+			black := 0
+			for y := 0; y < out.Bounds().Dy(); y++ {
+				for x := 0; x < out.Bounds().Dx(); x++ {
+					c := color.RGBAModel.Convert(out.At(x, y)).(color.RGBA)
+					if c.R == 255 && c.G == 0 && c.B == 0 {
+						t.Fatal("neighbor leaked into crop")
+					}
+					if c.R == 0 && c.G == 0 && c.B == 0 {
+						black++
+					}
+				}
+			}
+			if black != 4 {
+				t.Fatalf("lost a target corner: retained %d/4", black)
+			}
+		})
+	}
+}
+
+func TestProcessorCropPaddingMinimum(t *testing.T) {
+	img := image.NewGray(image.Rect(0, 0, 200, 200))
+	p := imageProcessor{detector: &fakeDetector{detection: rectangle(100, 100, 40, 20, 0)}, autocrop: true}
+	out, info, err := p.Process(img)
+	if err != nil || !info.Detected || out.Bounds() != image.Rect(0, 0, 46, 26) {
+		t.Fatalf("minimum padding: bounds=%v info=%+v err=%v", out.Bounds(), info, err)
+	}
+}
+
 func TestProcessorFlagsAndDetection(t *testing.T) {
 	img := image.NewGray(image.Rect(10, 20, 1010, 820))
 	d := rectangle(500, 400, 300, 190, 20)
