@@ -27,6 +27,8 @@ func TestCLIValidation(t *testing.T) {
 		{[]string{"scan", "--single-page"}, 2},
 		{[]string{"scan", "--single-page", "-o", "scan.jpg"}, 2},
 		{[]string{"info", "--single-page"}, 2},
+		{[]string{"info", "--deskew"}, 2}, {[]string{"discover", "--autocrop"}, 2},
+		{[]string{"scan", "--deskew=bad"}, 2}, {[]string{"scan", "--autocrop=bad"}, 2},
 		{[]string{"discover", "-h"}, 0}, {[]string{"discover", "--host", "127.0.0.1"}, 2},
 		{[]string{"info", "--host", ""}, 2}, {[]string{"info", "--endpoint", ""}, 2},
 		{[]string{"info", "--host", "127.0.0.1", "--endpoint", "http://127.0.0.1/wsd/scan"}, 2},

@@ -67,6 +67,9 @@ func scanPages(ctx context.Context, c *client, opts options, output string, sing
 		if err != nil {
 			return fmt.Errorf("扫描失败：%w\n未自动重试；若创建任务时断线，请先检查扫描器状态。", err)
 		}
+		for _, warning := range result.Warnings {
+			fmt.Fprintf(stderr, "第 %d 页预处理警告：%s\n", page, warning)
+		}
 		if pdf && !singlePage {
 			pages = append(pages, scanPath)
 			fmt.Fprintf(stdout, "已扫描第 %d 页；结束时合并保存 PDF。\n", page)

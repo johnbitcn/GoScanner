@@ -17,11 +17,16 @@ import (
 
 type region struct{ X, Y, Width, Height int }
 type options struct {
-	DPI  int
-	Mode string
-	Area region
+	DPI      int
+	Mode     string
+	Area     region
+	Deskew   bool
+	Autocrop bool
 }
-type scanResult struct{ Bytes, Width, Height int }
+type scanResult struct {
+	Bytes, Width, Height int
+	Warnings             []string
+}
 
 func parseArea(text string) (region, error) {
 	if strings.EqualFold(text, "a4") {
@@ -173,6 +178,21 @@ func (c *client) scan(ctx context.Context, opts options, output string) (result 
 	if _, err = jpeg.Decode(bytes.NewReader(image)); err != nil {
 		return result, errors.New("JPEG 无法完整解码")
 	}
+	if opts.Deskew || opts.Autocrop {
+		processed, warnings, processErr := preprocessJPEG(image, opts.Deskew, opts.Autocrop)
+		result.Warnings = warnings
+		if processErr == nil {
+			processedConfig, configErr := jpeg.DecodeConfig(bytes.NewReader(processed))
+			if configErr != nil || processedConfig.Width <= 0 || processedConfig.Height <= 0 || int64(processedConfig.Width)*int64(processedConfig.Height) > 40_000_000 {
+				processErr = errors.New("处理后的 JPEG 尺寸无效或超过 4000 万像素")
+			} else {
+				image, config = processed, processedConfig
+			}
+		}
+		if processErr != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("预处理失败，已保留原图：%v", processErr))
+		}
+	}
 	if err = ctx.Err(); err != nil {
 		return result, err
 	}
@@ -191,5 +211,6 @@ func (c *client) scan(ctx context.Context, opts options, output string) (result 
 		return result, fmt.Errorf("发布文件失败；完整图像保留在 %s：%w", file.Name(), err)
 	}
 	success = true
-	return scanResult{Bytes: len(image), Width: config.Width, Height: config.Height}, nil
+	result.Bytes, result.Width, result.Height = len(image), config.Width, config.Height
+	return result, nil
 }
