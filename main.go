@@ -21,20 +21,20 @@ const usage = `GoScanner — WSD 局域网扫描工具
   goscanner discover [--timeout 10s]
   goscanner info [--host IP | --endpoint URL] [--timeout 2m]
   goscanner scan [--host IP | --endpoint URL] [--dpi 300] [--mode color]
-                 [--area a4] [-o scans/output.jpg|output.pdf] [--timeout 2m]
+                 [--area a4] [-o scans/output.jpg|output.tiff|output.png|output.pdf] [--timeout 2m]
                  [--manual] [--single-page] [--deskew] [--autocrop]
 
 未指定设备时自动发现：只有一个扫描端点且发现过程完整时才使用它；多项时停止并列出地址。
 --host：显式使用该 IP 的 http://IP:8018/wsd/scan，保留原用法。
 --endpoint：显式使用 discover 返回的完整 HTTP 扫描地址。
+--deskew / --autocrop：可选 AI 纠偏 / 裁切；默认关闭，启用时保留原图。
 --mode：color、gray
---area：a4 或 x,y,width,height（毫米，原点为平板左上角）
+--area：a4（默认）、full（完整平板）或 x,y,width,height（毫米，原点为平板左上角）
 discover/info 不启动扫描；scan 会直接启动一次扫描。已有文件不会被覆盖。
 --manual：手动连续扫描；换页后按任意键继续，单独按 Esc 结束。
--o：扩展名 .pdf 保存为 PDF；连续扫描默认合并为一个 PDF，JPEG 仍按页编号保存。
+-o：支持 JPEG、TIFF、PNG、PDF；连续扫描默认合并为一个 PDF，图像格式按页编号保存。
+TIFF 使用设备原生未压缩 TIFF；PNG 由原生 TIFF 无损转换，不经过 JPEG。
 --single-page：仅用于 PDF，每页保存为独立文档；连续扫描时文件名带序号。
---deskew：检测并纠正小角度倾斜；不确定时保留原图并提示。
---autocrop：按纸张边界裁切，保留页边距；不按文字内容裁切。
 PDF 在结束、中断或后续页失败时保存已完成的页面，不覆盖已有文件。
 手动模式需要交互终端；--timeout 分别限制发现和每页扫描，不包含换页等待。
 Ctrl+C 会尝试取消本客户端创建的任务；不会自动重试扫描任务。
@@ -66,14 +66,14 @@ func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
 	var mode, area, output *string
 	var manual, singlePage, deskew, autocrop bool
 	if command == "scan" {
+		flags.BoolVar(&deskew, "deskew", false, "AI 纠偏")
+		flags.BoolVar(&autocrop, "autocrop", false, "AI 裁切")
 		flags.BoolVar(&manual, "manual", false, "手动连续扫描：换页后按任意键继续，Esc 结束")
-		flags.BoolVar(&deskew, "deskew", false, "智能小角度纠偏；检测不可靠时保留原图")
-		flags.BoolVar(&autocrop, "autocrop", false, "按纸张边界裁切，保留页边距")
 		flags.BoolVar(&singlePage, "single-page", false, "PDF 每页保存为独立文档；须用 -o 指定 .pdf")
 		dpi = flags.Int("dpi", 300, "扫描分辨率；必须是设备声明的值")
 		mode = flags.String("mode", "color", "color 或 gray")
-		area = flags.String("area", "a4", "a4 或 x,y,width,height（毫米）")
-		output = flags.String("o", "", "新 JPEG 或 PDF 文件；默认 scans/scan-时间戳.jpg")
+		area = flags.String("area", "a4", "a4（默认）、full（完整平板）或 x,y,width,height（毫米）")
+		output = flags.String("o", "", "新 JPEG、TIFF、PNG 或 PDF 文件；默认 scans/scan-时间戳.jpg")
 	}
 	if err := flags.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -99,15 +99,15 @@ func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		if *dpi <= 0 || (*mode != "color" && *mode != "gray") {
-			fmt.Fprintln(stderr, "--dpi 必须大于零；JPEG 模式目前只开放 color、gray")
+			fmt.Fprintln(stderr, "--dpi 必须大于零；扫描模式目前只开放 color、gray")
 			return 2
 		}
 		if *output == "" {
 			*output = filepath.Join("scans", "scan-"+time.Now().Format("20060102-150405.000000000")+".jpg")
 		}
 		ext := strings.ToLower(filepath.Ext(*output))
-		if ext != ".jpg" && ext != ".jpeg" && ext != ".pdf" {
-			fmt.Fprintln(stderr, "输出扩展名必须是 .jpg、.jpeg 或 .pdf")
+		if ext != ".jpg" && ext != ".jpeg" && ext != ".tif" && ext != ".tiff" && ext != ".png" && ext != ".pdf" {
+			fmt.Fprintln(stderr, "输出扩展名必须是 .jpg、.jpeg、.tif、.tiff、.png 或 .pdf")
 			return 1
 		}
 		if singlePage && ext != ".pdf" {

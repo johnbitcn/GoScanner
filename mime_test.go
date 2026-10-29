@@ -15,7 +15,7 @@ func TestMTOMStandardAndHP(t *testing.T) {
 			if strings.HasPrefix(boundary, "_DPWS") {
 				data = bytes.ReplaceAll(data, []byte("\r\n--"+boundary), []byte("--"+boundary))
 			}
-			result, err := jpegFromResponse(contentType, data)
+			result, err := imageFromResponse(contentType, data, formatJPEG)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -50,7 +50,7 @@ func TestMTOMRejectsInvalidResponses(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := jpegFromResponse(tc.ct, tc.data); err == nil {
+			if _, err := imageFromResponse(tc.ct, tc.data, formatJPEG); err == nil {
 				t.Fatal("accepted invalid response")
 			}
 		})
@@ -62,7 +62,7 @@ func TestMTOMBase64(t *testing.T) {
 	contentType, data := mtom(image, "boundary", "cid:image@scanner")
 	data = bytes.Replace(data, []byte("Content-Transfer-Encoding: binary"), []byte("Content-Transfer-Encoding: base64"), 1)
 	data = bytes.Replace(data, image, []byte(base64.StdEncoding.EncodeToString(image)), 1)
-	result, err := jpegFromResponse(contentType, data)
+	result, err := imageFromResponse(contentType, data, formatJPEG)
 	if err != nil || !bytes.Equal(result, image) {
 		t.Fatalf("base64 parsing failed: %v", err)
 	}

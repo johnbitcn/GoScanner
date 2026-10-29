@@ -12,6 +12,19 @@ import (
 )
 
 func scanPages(ctx context.Context, c *client, opts options, output string, singlePage bool, timeout time.Duration, wait func(context.Context) (bool, error), stdout, stderr io.Writer) (err error) {
+	if opts.Deskew || opts.Autocrop {
+		if opts.processor == nil {
+			factory := opts.newProcessor
+			if factory == nil {
+				factory = newImageProcessor
+			}
+			opts.processor, err = factory(opts.Deskew, opts.Autocrop)
+			if err != nil {
+				return err
+			}
+		}
+		defer func() { err = errors.Join(err, opts.processor.Close()) }()
+	}
 	pdf := strings.EqualFold(filepath.Ext(output), ".pdf")
 	var staging string
 	var pages []string
@@ -60,15 +73,39 @@ func scanPages(ctx context.Context, c *client, opts options, output string, sing
 			}
 			scanPath = filepath.Join(staging, fmt.Sprintf("%03d.jpg", page))
 		}
+		if opts.Deskew || opts.Autocrop {
+			ext := strings.ToLower(filepath.Ext(output))
+			if pdf {
+				ext = ".jpg"
+			} else if ext == ".png" {
+				ext = ".tiff"
+			}
+			base := strings.TrimSuffix(output, filepath.Ext(output))
+			if pdf || wait != nil {
+				opts.originalPath = fmt.Sprintf("%s-original-%03d%s", base, page, ext)
+			} else {
+				opts.originalPath = base + "-original" + ext
+			}
+		}
 		fmt.Fprintln(stderr, "检查能力并扫描；请勿断电。Ctrl+C 可取消。")
 		pageCtx, cancel := context.WithTimeout(ctx, timeout)
 		result, err := c.scan(pageCtx, opts, scanPath)
 		cancel()
+		if result.originalPath != "" {
+			absolute, _ := filepath.Abs(result.originalPath)
+			fmt.Fprintf(stdout, "原图保留：%s\n", absolute)
+		}
+		if result.warning != "" {
+			fmt.Fprintf(stderr, "第 %d 页预处理警告：%s；保留原图\n", page, result.warning)
+		}
+		for _, warning := range result.processing.Warnings {
+			fmt.Fprintf(stderr, "第 %d 页预处理警告：%s\n", page, warning)
+		}
 		if err != nil {
 			return fmt.Errorf("扫描失败：%w\n未自动重试；若创建任务时断线，请先检查扫描器状态。", err)
 		}
-		for _, warning := range result.Warnings {
-			fmt.Fprintf(stderr, "第 %d 页预处理警告：%s\n", page, warning)
+		if opts.processor != nil {
+			fmt.Fprintf(stdout, "Detected: %t；Angle: %.2f°；Changed: %t；尺寸：%d × %d\n", result.processing.Detected, result.processing.Angle, result.processing.Changed, result.Width, result.Height)
 		}
 		if pdf && !singlePage {
 			pages = append(pages, scanPath)
@@ -83,7 +120,7 @@ func scanPages(ctx context.Context, c *client, opts options, output string, sing
 				}
 			}
 			absolute, _ := filepath.Abs(path)
-			fmt.Fprintf(stdout, "已保存：%s\n尺寸：%d × %d 像素；JPEG 图像 %d 字节\n", absolute, result.Width, result.Height, result.Bytes)
+			fmt.Fprintf(stdout, "已保存：%s\n尺寸：%d × %d 像素；图像 %d 字节\n", absolute, result.Width, result.Height, result.Bytes)
 		}
 		if wait == nil {
 			return nil

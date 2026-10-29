@@ -1,237 +1,177 @@
 package main
 
 import (
-	"bytes"
+	"errors"
 	"image"
 	"image/color"
-	"image/draw"
-	"image/jpeg"
 	"math"
 	"testing"
-
-	"gocv.io/x/gocv"
 )
 
-func testJPEG(t *testing.T, w, h int, angle float64, page bool) []byte {
-	t.Helper()
-	img := image.NewRGBA(image.Rect(0, 0, w, h))
+type fakeDetector struct {
+	detection     documentDetection
+	err           error
+	calls, closed int
+}
+
+func (f *fakeDetector) Detect(image.Image) (documentDetection, error) {
+	f.calls++
+	return f.detection, f.err
+}
+func (f *fakeDetector) Close() error { f.closed++; return nil }
+func rectangle(cx, cy, w, h, angle float64) documentDetection {
 	a := angle * math.Pi / 180
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			xx, yy := float64(x-w/2), float64(y-h/2)
-			px := xx*math.Cos(a) + yy*math.Sin(a)
-			py := -xx*math.Sin(a) + yy*math.Cos(a)
-			c := uint8(255)
-			if page {
-				c = 45
-				if math.Abs(px) < float64(w)*.35 && math.Abs(py) < float64(h)*.35 {
-					c = 245
-					if math.Abs(px) > float64(w)*.32 && math.Abs(py) > float64(h)*.32 {
-						c = 20
-					}
-				}
-			}
-			img.SetRGBA(x, y, color.RGBA{c, c, c, 255})
+	c, s := math.Cos(a), math.Sin(a)
+	d := documentDetection{Peaks: [4]float64{.8, .8, .8, .8}}
+	for i, p := range [4][2]float64{{-w / 2, -h / 2}, {w / 2, -h / 2}, {w / 2, h / 2}, {-w / 2, h / 2}} {
+		d.Corners[i] = documentCorner{cx + c*p[0] - s*p[1], cy + s*p[0] + c*p[1]}
+	}
+	return d
+}
+func TestProcessorFlagsAndDetection(t *testing.T) {
+	img := image.NewGray(image.Rect(10, 20, 1010, 820))
+	d := rectangle(500, 400, 300, 190, 20)
+	for _, flags := range [][2]bool{{false, false}, {true, false}, {false, true}, {true, true}} {
+		f := &fakeDetector{detection: d}
+		p := imageProcessor{detector: f, deskew: flags[0], autocrop: flags[1]}
+		got, info, err := p.Process(img)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f.calls != btoi(flags[0] || flags[1]) || info.Detected != (flags[0] || flags[1]) || info.Changed != (flags[0] || flags[1]) {
+			t.Fatalf("%v: %+v calls %d", flags, info, f.calls)
+		}
+		if !flags[0] && !flags[1] && got != img {
+			t.Fatal("disabled changed image")
+		}
+		if info.Detected && math.Abs(info.Angle-20) > .01 {
+			t.Fatal(info.Angle)
+		}
+		if _, ok := got.(*image.Gray); !ok {
+			t.Fatal("lost grayscale")
+		}
+		if flags[0] && !flags[1] && (got.Bounds().Dx() < 1000 || got.Bounds().Dy() < 800) {
+			t.Fatal("rotation clipped canvas")
+		}
+		if flags[1] && (got.Bounds().Dx() >= 1000 || got.Bounds().Dy() >= 800) {
+			t.Fatal("crop not applied")
+		}
+		if err := p.Close(); err != nil {
+			t.Fatal(err)
+		}
+		_ = p.Close()
+		if f.closed != 1 {
+			t.Fatal("close", f.closed)
 		}
 	}
-	var b bytes.Buffer
-	if err := jpeg.Encode(&b, img, &jpeg.Options{Quality: 100}); err != nil {
-		t.Fatal(err)
-	}
-	return b.Bytes()
 }
-
-func decodedImage(t *testing.T, data []byte) image.Image {
-	t.Helper()
-	img, err := jpeg.Decode(bytes.NewReader(data))
-	if err != nil {
-		t.Fatal(err)
+func btoi(b bool) int {
+	if b {
+		return 1
 	}
-	return img
+	return 0
 }
-
-func TestPreprocessJPEGNoFlagsAndInvalid(t *testing.T) {
-	data := []byte("not jpeg")
-	got, w, err := preprocessJPEG(data, false, false)
-	if err != nil || len(w) != 0 || !bytes.Equal(got, data) {
-		t.Fatal("disabled preprocessing changed data")
-	}
-	for _, bad := range [][]byte{data, {0xff, 0xd8, 0xff}, nil} {
-		if _, _, err := preprocessJPEG(bad, true, false); err == nil {
-			t.Fatalf("accepted invalid JPEG %x", bad)
-		}
-	}
-}
-
-func TestPreprocessJPEGOversizedHeader(t *testing.T) {
-	data := testJPEG(t, 40, 40, 0, false)
-	for i := 0; i+8 < len(data); i++ {
-		if data[i] == 0xff && data[i+1] == 0xc0 {
-			data[i+5], data[i+6], data[i+7], data[i+8] = 0xff, 0xff, 0xff, 0xff
-			if _, _, err := preprocessJPEG(data, true, false); err == nil {
-				t.Fatal("accepted oversized JPEG")
-			}
-			return
-		}
-	}
-	t.Fatal("JPEG frame header not found")
-}
-
-func TestPreprocessJPEGBlankAndInteriorBox(t *testing.T) {
-	blank := testJPEG(t, 800, 700, 0, false)
-	got, w, err := preprocessJPEG(blank, true, true)
-	if err != nil || !bytes.Equal(got, blank) || len(w) != 2 {
-		t.Fatalf("blank: warnings=%v error=%v", w, err)
-	}
-	img := image.NewRGBA(image.Rect(0, 0, 800, 700))
-	for y := 0; y < 700; y++ {
-		for x := 0; x < 800; x++ {
-			c := uint8(250)
-			if x > 100 && x < 700 && y > 100 && y < 600 && (x < 105 || x > 695 || y < 105 || y > 595) {
-				c = 0
-			}
-			img.SetRGBA(x, y, color.RGBA{c, c, c, 255})
-		}
-	}
-	var b bytes.Buffer
-	if err := jpeg.Encode(&b, img, nil); err != nil {
-		t.Fatal(err)
-	}
-	got, w, err = preprocessJPEG(b.Bytes(), false, true)
-	if err != nil || !bytes.Equal(got, b.Bytes()) || len(w) != 1 {
-		t.Fatalf("interior box: warnings=%v error=%v", w, err)
-	}
-}
-
-func TestPreprocessJPEGDeskewPaper(t *testing.T) {
-	for _, angle := range []float64{-5, 5} {
-		t.Run(fmtAngle(angle), func(t *testing.T) {
-			data := testJPEG(t, 900, 800, angle, true)
-			got, w, err := preprocessJPEG(data, true, false)
-			if err != nil || len(w) != 0 || bytes.Equal(got, data) {
-				t.Fatalf("warnings=%v error=%v", w, err)
-			}
-			im, err := gocv.IMDecode(got, gocv.IMReadColor)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer im.Close()
-			_, remaining, ok, err := paperBoundary(im, true)
-			if err != nil || !ok || math.Abs(remaining) > 1 {
-				t.Fatalf("remaining angle=%v detected=%v error=%v", remaining, ok, err)
-			}
-			if im.Cols() < 900 || im.Rows() < 800 {
-				t.Fatal("rotation clipped canvas")
+func TestProcessorInvalidDetection(t *testing.T) {
+	good := rectangle(500, 400, 300, 200, 0)
+	cases := map[string]documentDetection{}
+	d := good
+	d.Peaks[0] = .1
+	cases["low peak"] = d
+	d = good
+	d.Corners[0].X = math.NaN()
+	cases["nan"] = d
+	d = good
+	d.Corners[0] = d.Corners[1]
+	cases["missing"] = d
+	d = good
+	d.Corners[0] = documentCorner{500, 400}
+	cases["concave"] = d
+	d = good
+	d.Corners[1], d.Corners[2] = d.Corners[2], d.Corners[1]
+	cases["crossed"] = d
+	img := image.NewGray(image.Rect(0, 0, 1000, 800))
+	for name, d := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := &fakeDetector{detection: d}
+			p := imageProcessor{detector: f, autocrop: true}
+			out, info, err := p.Process(img)
+			if err != nil || out != img || info.Detected || info.Changed || len(info.Warnings) == 0 {
+				t.Fatalf("%+v %v", info, err)
 			}
 		})
 	}
-}
-func fmtAngle(a float64) string {
-	if a < 0 {
-		return "negative"
-	}
-	return "positive"
-}
-
-func TestPreprocessJPEGDeskewThenCrop(t *testing.T) {
-	data := testJPEG(t, 900, 800, 5, true)
-	got, warnings, err := preprocessJPEG(data, true, true)
-	if err != nil || len(warnings) != 0 {
-		t.Fatalf("warnings=%v error=%v", warnings, err)
-	}
-	bounds := decodedImage(t, got).Bounds()
-	if bounds.Dx() >= 850 || bounds.Dy() >= 750 || bounds.Dx() < 630 || bounds.Dy() < 560 {
-		t.Fatalf("unexpected cropped bounds %v", bounds)
+	f := &fakeDetector{err: errors.New("inference")}
+	p := imageProcessor{detector: f, deskew: true}
+	out, _, err := p.Process(img)
+	if err == nil || out != img {
+		t.Fatal("inference error lost")
 	}
 }
-
-func TestPreprocessJPEGCropAndResolution(t *testing.T) {
-	data := testJPEG(t, 2000, 1800, 0, true)
-	got, w, err := preprocessJPEG(data, false, true)
-	if err != nil || len(w) != 0 {
-		t.Fatalf("warnings=%v error=%v", w, err)
-	}
-	img := decodedImage(t, got)
-	b := img.Bounds()
-	if b.Dx() < 1400 || b.Dy() < 1260 || b.Dx() > 1450 || b.Dy() > 1310 {
-		t.Fatalf("crop dimensions %v", b)
-	}
-	// The dark corner marks lie close to all four page corners.
-	for _, p := range []image.Point{{25, 25}, {b.Dx() - 25, 25}, {25, b.Dy() - 25}, {b.Dx() - 25, b.Dy() - 25}} {
-		r, _, _, _ := img.At(p.X, p.Y).RGBA()
-		if r > 30000 {
-			t.Errorf("edge mark missing at %v", p)
+func TestProcessorNoChangeAndEdge(t *testing.T) {
+	img := image.NewGray(image.Rect(0, 0, 1000, 800))
+	img.SetGray(0, 0, color.Gray{0})
+	for _, d := range []documentDetection{rectangle(500, 400, 1000, 800, 0), rectangle(500, 400, 1000, 800, .05)} {
+		f := &fakeDetector{detection: d}
+		p := imageProcessor{detector: f, deskew: true, autocrop: true}
+		out, info, err := p.Process(img)
+		// The slightly rotated full-image rectangle extends outside the input and is rejected.
+		if err != nil || out != img || info.Changed {
+			t.Fatalf("%+v %v", info, err)
 		}
 	}
-}
-
-func TestPreprocessJPEGPreservesGrayscale(t *testing.T) {
-	original := decodedImage(t, testJPEG(t, 900, 800, 0, true))
-	gray := image.NewGray(original.Bounds())
-	for y := 0; y < gray.Bounds().Dy(); y++ {
-		for x := 0; x < gray.Bounds().Dx(); x++ {
-			gray.Set(x, y, original.At(x, y))
-		}
-	}
-	var b bytes.Buffer
-	if err := jpeg.Encode(&b, gray, nil); err != nil {
-		t.Fatal(err)
-	}
-	got, warnings, err := preprocessJPEG(b.Bytes(), false, true)
-	if err != nil || len(warnings) != 0 {
-		t.Fatalf("warnings=%v error=%v", warnings, err)
-	}
-	config, err := jpeg.DecodeConfig(bytes.NewReader(got))
-	if err != nil || config.ColorModel != color.GrayModel {
-		t.Fatalf("output is not grayscale: %v %v", config.ColorModel, err)
+	f := &fakeDetector{detection: rectangle(500, 400, 1000, 800, 0)}
+	p := imageProcessor{detector: f, autocrop: true}
+	_, info, err := p.Process(img)
+	if err != nil || !info.Detected {
+		t.Fatalf("edge rejected %+v %v", info, err)
 	}
 }
 
-func TestPreprocessJPEGRejectsSplitPaper(t *testing.T) {
-	for _, band := range []image.Rectangle{image.Rect(390, 70, 410, 630), image.Rect(250, 70, 270, 630), image.Rect(80, 340, 720, 360)} {
-		t.Run(band.String(), func(t *testing.T) {
-			img := image.NewGray(image.Rect(0, 0, 800, 700))
-			draw.Draw(img, img.Bounds(), image.NewUniform(color.Gray{Y: 40}), image.Point{}, draw.Src)
-			draw.Draw(img, image.Rect(80, 70, 720, 630), image.White, image.Point{}, draw.Src)
-			draw.Draw(img, band, image.Black, image.Point{}, draw.Src)
-			var b bytes.Buffer
-			if err := jpeg.Encode(&b, img, &jpeg.Options{Quality: 95}); err != nil {
-				t.Fatal(err)
-			}
-			got, warnings, err := preprocessJPEG(b.Bytes(), false, true)
-			if err != nil || !bytes.Equal(got, b.Bytes()) || len(warnings) != 1 {
-				t.Fatalf("internal band must not turn half a page into a crop: warnings=%v, err=%v", warnings, err)
-			}
-		})
+type hugeImage struct{ bounds image.Rectangle }
+
+func (h hugeImage) ColorModel() color.Model { return color.GrayModel }
+func (h hugeImage) Bounds() image.Rectangle { return h.bounds }
+func (h hugeImage) At(int, int) color.Color { return color.White }
+func TestProcessorLimits(t *testing.T) {
+	f := &fakeDetector{detection: rectangle(2500, 4000, 2000, 3000, 20)}
+	p := imageProcessor{detector: f, deskew: true}
+	_, _, err := p.Process(hugeImage{image.Rect(0, 0, 5000, 8001)})
+	if err == nil || f.calls != 0 {
+		t.Fatal("input limit")
+	}
+	_, _, err = p.Process(hugeImage{image.Rect(0, 0, 5000, 8000)})
+	if err == nil || f.calls != 1 {
+		t.Fatal("rotation limit")
 	}
 }
 
-func TestPreprocessJPEGOnlyCropDoesNotDeskew(t *testing.T) {
-	data := testJPEG(t, 900, 800, 5, true)
-	got, w, err := preprocessJPEG(data, false, true)
-	if err != nil || len(w) != 0 {
-		t.Fatalf("warnings=%v error=%v", w, err)
-	}
-	im, err := gocv.IMDecode(got, gocv.IMReadColor)
+func TestProcessorNoModelAndSmallAngle(t *testing.T) {
+	t.Setenv("GOSCANNER_MODEL_PATH", "/nonexistent/model")
+	p, err := newImageProcessor(false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer im.Close()
-	// Crop must preserve the source rotation; inspect thresholded paper in the original-sized context.
-	if decodedImage(t, got).Bounds().Dx() >= 900 || im.Empty() {
-		t.Fatal("crop was not applied")
+	defer p.Close()
+	img := image.NewGray(image.Rect(0, 0, 1000, 800))
+	out, info, err := p.Process(img)
+	if err != nil || out != img || info.Changed {
+		t.Fatal("disabled", info, err)
 	}
-	// Deskew changes the canvas and pixels; crop alone must retain the sloping page edge.
-	edgeY := func(x int) int {
-		for y := 0; y < im.Rows(); y++ {
-			if im.GetUCharAt3(y, x, 0) > 200 {
-				return y
-			}
-		}
-		return -1
+	f := &fakeDetector{detection: rectangle(500, 400, 300, 200, .1)}
+	p = &imageProcessor{detector: f, deskew: true}
+	out, info, err = p.Process(img)
+	if err != nil || out != img || !info.Detected || info.Changed || math.Abs(info.Angle-.1) > .001 {
+		t.Fatal("small angle", info, err)
 	}
-	left, right := edgeY(im.Cols()/3), edgeY(2*im.Cols()/3)
-	if left < 0 || right < 0 || int(math.Abs(float64(left-right))) < 10 {
-		t.Fatalf("page edge unexpectedly level: %d %d", left, right)
+}
+func TestProcessorGray16(t *testing.T) {
+	img := image.NewGray16(image.Rect(0, 0, 1000, 800))
+	p := imageProcessor{detector: &fakeDetector{detection: rectangle(500, 400, 300, 200, 20)}, deskew: true, autocrop: true}
+	out, _, err := p.Process(img)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := out.(*image.Gray); !ok {
+		t.Fatalf("gray16 output %T", out)
 	}
 }
