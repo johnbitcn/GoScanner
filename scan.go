@@ -184,11 +184,8 @@ func (c *client) scan(ctx context.Context, opts options, output string) (result 
 	if jobID == "" || strings.TrimSpace(token) == "" {
 		return result, errors.New("创建响应缺少有效的 JobId 或 JobToken")
 	}
-	documentName := "IMAGE000.JPG"
-	if opts.Format == formatTIFF {
-		documentName = "IMAGE000.TIF"
-	}
-	request := `<w:RetrieveImageRequest><w:DocumentDescription><w:DocumentName>` + documentName + `</w:DocumentName></w:DocumentDescription><w:JobId>` + escape(jobID) + `</w:JobId><w:JobToken>` + escape(token) + `</w:JobToken></w:RetrieveImageRequest>`
+	// HP firmware expects this fixed document name even when the requested format is TIFF.
+	request := `<w:RetrieveImageRequest><w:DocumentDescription><w:DocumentName>IMAGE000.JPG</w:DocumentName></w:DocumentDescription><w:JobId>` + escape(jobID) + `</w:JobId><w:JobToken>` + escape(token) + `</w:JobToken></w:RetrieveImageRequest>`
 	contentType, data, err := c.post(ctx, "RetrieveImage", request)
 	if err != nil {
 		return result, err

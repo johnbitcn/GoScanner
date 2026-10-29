@@ -55,7 +55,7 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 
 本机已生成：
 
-- `bin/goscanner`：Darwin arm64；JPEG 的历史实机验证见下文，新增 TIFF/PNG 尚未实机扫描验证。
+- `bin/goscanner`：Darwin arm64；JPEG、原生 TIFF 和 PNG 已在 HP 1188w 联机验证，详见 [TIFF-PNG-VERIFICATION.md](TIFF-PNG-VERIFICATION.md)。
 - `bin/goscanner-darwin-amd64`：Darwin amd64，已交叉编译，尚未在 Intel Mac 上运行验证。
 
 这些构建不需要第三方运行库。尚未做 Developer ID 分发签名或公证。
@@ -93,7 +93,7 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 - `.png`：同样请求原生 TIFF，解码后用 Go PNG 编码器无损保存；不经过 JPEG，不改变像素尺寸，不裁切或缩放。程序没有另外写入 PNG 的 DPI 元数据。
 - 不指定 `-o` 时，仍保存为 JPEG；JPEG 和 PDF 继续请求 `jfif`，PDF 直接嵌入原始 JPEG。
 - `--manual -o scans/document.tiff` 或 `--manual -o scans/document.png` 分别生成 `document-001.tiff` / `.png` 等文件；不合并为多页 TIFF。`--single-page` 仍只用于 PDF。
-- 彩色和灰度均已通过模拟设备测试；覆盖原生 TIFF 字节不变、PNG 逐像素一致、大小写扩展名、连续扫描、损坏/超限图像拒绝、文件冲突和失败清理。**设备声明支持不等于组合已经实测，TIFF/PNG 尚未做真实设备扫描验证。**
+- 彩色和灰度均已通过模拟设备测试；覆盖原生 TIFF 字节不变、PNG 逐像素一致、大小写扩展名、连续扫描、损坏/超限图像拒绝、文件冲突和失败清理。实机已验证 A4 彩色 TIFF/PNG，以及 full 灰度 TIFF；其他组合和新格式的连续换页仍待实测，见 [联机记录](TIFF-PNG-VERIFICATION.md)。
 
 ## 手动连续扫描
 
@@ -187,6 +187,8 @@ PDF 已通过模拟扫描测试、文档结构检查，并在本机使用 `qpdf`
 ## 固件兼容性与网络边界
 
 这台 HP 固件会在 MIME 分隔符前漏写 CRLF。程序只对已观察到的 `_DPWS_v1.0_MimeBoundary_WSD` 边界做修复，然后用标准库解析 MIME，按 `start` 和 XOP `cid:` 找到图像，不假定附件顺序。测试覆盖修复前后图像字节一致及重复修复不改变数据。
+
+HP 1188w 的 `RetrieveImage` 下载文档名必须保持 `IMAGE000.JPG`，即使请求的源格式为 TIFF。这个名字不是输出格式：把它改为 `IMAGE000.TIF` 会得到 `ClientErrorNoImagesAvailable`，而保持 `.JPG` 时仍返回有效的未压缩 TIFF。客户端据此固定下载文档名，不改变票据中的 `Format`，也不降级为 JPEG。
 
 HTTP 客户端不使用代理环境变量，不跟随重定向，不访问 XOP 中的外部 URL。任务令牌仅在内存中用于下载，不写入日志。
 

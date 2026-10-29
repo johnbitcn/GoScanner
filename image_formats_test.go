@@ -90,8 +90,8 @@ func TestNativeTIFFAndPNG(t *testing.T) {
 						}
 						io.WriteString(w, responseXML("CreateScanJobResponse", "<w:JobId>7</w:JobId><w:JobToken>token</w:JobToken>"))
 					case "RetrieveImage":
-						if !bytes.Contains(data, []byte("<w:DocumentName>IMAGE000.TIF</w:DocumentName>")) {
-							t.Error("retrieval filename does not match native TIFF")
+						if !bytes.Contains(data, []byte("<w:DocumentName>IMAGE000.JPG</w:DocumentName>")) {
+							t.Error("HP firmware requires the fixed document name even for TIFF")
 						}
 						ct, body := mtom(source, "_DPWS_v1.0_MimeBoundary_WSD", "cid:image@scanner")
 						body = bytes.ReplaceAll(body, []byte("\r\n--_DPWS"), []byte("--_DPWS"))
