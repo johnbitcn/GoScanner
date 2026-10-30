@@ -89,7 +89,7 @@ func TestProcessorFlagsAndDetection(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if f.calls != btoi(flags[0] || flags[1]) || info.Detected != (flags[0] || flags[1]) || info.Changed != (flags[0] || flags[1]) {
+		if f.calls != btoi(flags[0] || flags[1]) || info.Detected != (flags[0] || flags[1]) || info.AngleReliable != info.Detected || info.Changed != (flags[0] || flags[1]) {
 			t.Fatalf("%v: %+v calls %d", flags, info, f.calls)
 		}
 		if !flags[0] && !flags[1] && got != img {
@@ -132,6 +132,20 @@ func TestProcessorInvalidDetection(t *testing.T) {
 	d.Corners[0].X = math.NaN()
 	cases["nan"] = d
 	d = good
+	d.Corners[0].Y = math.Inf(1)
+	cases["infinite corner"] = d
+	d = good
+	d.Corners[0].X = -1
+	cases["outside image"] = d
+	d = good
+	d.Peaks[0] = math.NaN()
+	cases["nan peak"] = d
+	d = good
+	d.Peaks[0] = math.Inf(1)
+	cases["infinite peak"] = d
+	cases["short edge"] = rectangle(500, 400, 1, 200, 0)
+	cases["tiny area"] = rectangle(500, 400, 10, 10, 0)
+	d = good
 	d.Corners[0] = d.Corners[1]
 	cases["missing"] = d
 	d = good
@@ -146,7 +160,7 @@ func TestProcessorInvalidDetection(t *testing.T) {
 			f := &fakeDetector{detection: d}
 			p := imageProcessor{detector: f, autocrop: true}
 			out, info, err := p.Process(img)
-			if err != nil || out != img || info.Detected || info.Changed || len(info.Warnings) == 0 {
+			if err != nil || out != img || info.Detected || info.AngleReliable || info.Changed || len(info.Warnings) == 0 {
 				t.Fatalf("%+v %v", info, err)
 			}
 		})

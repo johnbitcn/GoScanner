@@ -105,7 +105,11 @@ func scanPages(ctx context.Context, c *client, opts options, output string, sing
 			return fmt.Errorf("扫描失败：%w\n未自动重试；若创建任务时断线，请先检查扫描器状态。", err)
 		}
 		if opts.processor != nil {
-			fmt.Fprintf(stdout, "Detected: %t；Angle: %.2f°；Changed: %t；尺寸：%d × %d\n", result.processing.Detected, result.processing.Angle, result.processing.Changed, result.Width, result.Height)
+			angle := "不可用"
+			if result.processing.AngleReliable {
+				angle = fmt.Sprintf("%.2f°", result.processing.Angle)
+			}
+			fmt.Fprintf(stdout, "Detected: %t；Angle: %s；Changed: %t；尺寸：%d × %d\n", result.processing.Detected, angle, result.processing.Changed, result.Width, result.Height)
 		}
 		if pdf && !singlePage {
 			pages = append(pages, scanPath)

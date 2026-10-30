@@ -89,6 +89,9 @@ func TestPreprocessingOutputPipeline(t *testing.T) {
 			if err := scanPages(context.Background(), c, opts, output, scenario == "split", time.Second*10, wait, &stdout, &stderr); err != nil {
 				t.Fatal(err)
 			}
+			if !strings.Contains(stdout.String(), "Angle: 0.00°") && !strings.Contains(stdout.String(), "Angle: -0.00°") {
+				t.Fatalf("reliable angle missing: %s", &stdout)
+			}
 
 			paths := []string{output}
 			if scenario == "split" {
@@ -147,8 +150,62 @@ func TestPreprocessingWarningReachesCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(output)
-	if err != nil || !bytes.Equal(data, original) || !strings.Contains(stderr.String(), "第 1 页预处理警告") {
+	if err != nil || !bytes.Equal(data, original) || !strings.Contains(stderr.String(), "第 1 页预处理警告") || !strings.Contains(stdout.String(), "Detected: false；Angle: 不可用") {
 		t.Fatalf("uncertain detection must preserve original and warn: %v, %s", err, &stderr)
+	}
+}
+
+func TestPipelineAmbiguousAngle(t *testing.T) {
+	original, cap := integrationPaperJPEG(t), fixture(t)
+	c := testClient(t, func(w http.ResponseWriter, r *http.Request, action string, _ []byte) {
+		switch action {
+		case "GetScannerElements":
+			_, _ = w.Write(cap)
+		case "CreateScanJob":
+			io.WriteString(w, responseXML("CreateScanJobResponse", "<w:JobId>7</w:JobId><w:JobToken>token</w:JobToken>"))
+		case "RetrieveImage":
+			ct, body := mtom(original, "boundary", "cid:image@scanner")
+			w.Header().Set("Content-Type", ct)
+			_, _ = w.Write(body)
+		default:
+			t.Errorf("unexpected action %s", action)
+		}
+	})
+	d := documentDetection{
+		Corners: [4]documentCorner{{100, 100}, {400, 100}, {450, 300}, {150, 300}},
+		Peaks:   [4]float64{.8, .8, .8, .8},
+	}
+	for _, flags := range [][2]bool{{true, false}, {false, true}, {true, true}} {
+		t.Run(fmt.Sprint(flags), func(t *testing.T) {
+			opts := defaultOptions()
+			opts.Deskew, opts.Autocrop = flags[0], flags[1]
+			opts.processor = &imageProcessor{detector: &fakeDetector{detection: d}, deskew: flags[0], autocrop: flags[1]}
+			output := filepath.Join(t.TempDir(), "scan.jpg")
+			var stdout, stderr bytes.Buffer
+			if err := scanPages(context.Background(), c, opts, output, false, time.Second*10, nil, &stdout, &stderr); err != nil {
+				t.Fatal(err)
+			}
+			status := fmt.Sprintf("Detected: true；Angle: 不可用；Changed: %t", flags[1])
+			if !strings.Contains(stdout.String(), status) || strings.Contains(stderr.String(), "已跳过旋转") != flags[0] || strings.Contains(stderr.String(), "仍按有效边界裁切") != (flags[0] && flags[1]) {
+				t.Fatalf("stdout=%s stderr=%s", &stdout, &stderr)
+			}
+			data, err := os.ReadFile(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if flags[1] {
+				cfg, err := jpeg.DecodeConfig(bytes.NewReader(data))
+				if err != nil || cfg.Width != 362 || cfg.Height != 212 {
+					t.Fatalf("unrotated crop: %+v err=%v", cfg, err)
+				}
+			} else if !bytes.Equal(data, original) {
+				t.Fatal("deskew-only ambiguity must preserve original bytes")
+			}
+			preserved, err := os.ReadFile(filepath.Join(filepath.Dir(output), "scan-original.jpg"))
+			if err != nil || !bytes.Equal(preserved, original) {
+				t.Fatalf("original not preserved: %v", err)
+			}
+		})
 	}
 }
 

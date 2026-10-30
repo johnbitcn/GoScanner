@@ -6,17 +6,21 @@ import (
 	"image/color"
 	"image/draw"
 	"math"
+	"math/bits"
 
 	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/math/f64"
 )
 
-const maxProcessingPixels = 40_000_000
+const (
+	maxProcessingPixels = 40_000_000
+	edgeAngleTolerance  = 3.0
+)
 
 type processingInfo struct {
-	Changed, Detected bool
-	Angle             float64
-	Warnings          []string
+	Changed, Detected, AngleReliable bool
+	Angle                            float64
+	Warnings                         []string
 }
 
 type imageProcessor struct {
@@ -45,11 +49,11 @@ func (p *imageProcessor) Close() error {
 	return err
 }
 
-func validDocument(d documentDetection, w, h int) (float64, bool) {
-	var area, sx, sy float64
+func validDocument(d documentDetection, w, h int) bool {
+	var area float64
 	for i, a := range d.Corners {
 		if math.IsNaN(a.X) || math.IsNaN(a.Y) || math.IsInf(a.X, 0) || math.IsInf(a.Y, 0) || a.X < 0 || a.Y < 0 || a.X > float64(w) || a.Y > float64(h) || math.IsNaN(d.Peaks[i]) || math.IsInf(d.Peaks[i], 0) || d.Peaks[i] < 0.3 {
-			return 0, false
+			return false
 		}
 	}
 	for i, a := range d.Corners {
@@ -57,18 +61,14 @@ func validDocument(d documentDetection, w, h int) (float64, bool) {
 		dx, dy := b.X-a.X, b.Y-a.Y
 		cross := dx*(c.Y-b.Y) - dy*(c.X-b.X)
 		if math.Abs(cross) < 1 || (i > 0 && cross*area <= 0) {
-			return 0, false
+			return false
 		}
 		if i == 0 {
 			area = cross
 		}
-		length := math.Hypot(dx, dy)
-		if length < 2 {
-			return 0, false
+		if math.Hypot(dx, dy) < 2 {
+			return false
 		}
-		theta := math.Atan2(dy, dx) * 4
-		sx += length * math.Cos(theta)
-		sy += length * math.Sin(theta)
 	}
 	// Shoelace area rejects collapsed or implausibly small detections without assuming a page aspect ratio.
 	area = 0
@@ -76,8 +76,54 @@ func validDocument(d documentDetection, w, h int) (float64, bool) {
 		b := d.Corners[(i+1)%4]
 		area += a.X*b.Y - b.X*a.Y
 	}
-	if math.Abs(area)/2 < float64(w)*float64(h)*0.001 || math.Hypot(sx, sy) < 1e-9 {
+	return math.Abs(area)/2 >= float64(w)*float64(h)*0.001
+}
+
+func documentAngle(d documentDetection) (float64, bool) {
+	var angles [4]float64
+	for i, a := range d.Corners {
+		b := d.Corners[(i+1)%4]
+		angles[i] = math.Atan2(b.Y-a.Y, b.X-a.X) * 180 / math.Pi
+	}
+	bestMask, bestCount, ties := 0, 1, 0
+candidates:
+	for mask := 1; mask < 16; mask++ {
+		count := bits.OnesCount(uint(mask))
+		if count < 2 || count < bestCount {
+			continue
+		}
+		for i := 0; i < 4; i++ {
+			if mask&(1<<i) == 0 {
+				continue
+			}
+			for j := i + 1; j < 4; j++ {
+				if mask&(1<<j) == 0 {
+					continue
+				}
+				// Adjacent edges must be perpendicular; opposite edges must be parallel.
+				residual := math.Abs(math.Remainder(angles[j]-angles[i]-float64(j-i)*90, 180))
+				if residual > edgeAngleTolerance+1e-9 { // Allow round-off at exactly 3 degrees.
+					continue candidates
+				}
+			}
+		}
+		if count > bestCount {
+			bestMask, bestCount, ties = mask, count, 1
+		} else {
+			ties++
+		}
+	}
+	if ties != 1 {
 		return 0, false
+	}
+	// The fourfold circular mean treats perpendicular directions as the same skew.
+	var sx, sy float64
+	for i, angle := range angles {
+		if bestMask&(1<<i) != 0 {
+			theta := angle * math.Pi / 45
+			sx += math.Cos(theta)
+			sy += math.Sin(theta)
+		}
 	}
 	return math.Atan2(sy, sx) * 45 / math.Pi, true
 }
@@ -102,15 +148,23 @@ func (p *imageProcessor) Process(picture image.Image) (image.Image, processingIn
 	if err != nil {
 		return picture, info, fmt.Errorf("preprocess: detection: %w", err)
 	}
-	angle, ok := validDocument(detection, w, h)
-	if !ok {
+	if !validDocument(detection, w, h) {
 		info.Warnings = append(info.Warnings, "无法可靠检测纸张边界，保留原图")
 		return picture, info, nil
 	}
-	info.Detected, info.Angle = true, angle
+	info.Detected = true
+	angle, reliable := documentAngle(detection)
+	info.Angle, info.AngleReliable = angle, reliable
+	if p.deskew && !reliable {
+		warning := "边线方向不一致或存在歧义，已跳过旋转"
+		if p.autocrop {
+			warning += "；仍按有效边界裁切"
+		}
+		info.Warnings = append(info.Warnings, warning)
+	}
 	current := picture
 	points := detection.Corners
-	if p.deskew && math.Abs(angle) >= 0.3 {
+	if p.deskew && reliable && math.Abs(angle) >= 0.3 {
 		rad := angle * math.Pi / 180
 		c, s := math.Cos(rad), math.Sin(rad)
 		nw := int(math.Ceil(math.Abs(float64(w)*c) + math.Abs(float64(h)*s)))
