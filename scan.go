@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	_ "image/jpeg"
+	"image/jpeg"
 	"image/png"
 	"math"
 	"os"
@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	_ "golang.org/x/image/tiff"
+	"golang.org/x/image/tiff"
 )
 
 const (
@@ -27,12 +27,21 @@ const (
 // A zero region selects the full platen after reading device capabilities.
 type region struct{ X, Y, Width, Height int }
 type options struct {
-	DPI    int
-	Mode   string
-	Area   region
-	Format string
+	DPI              int
+	Mode             string
+	Area             region
+	Format           string
+	Deskew, Autocrop bool
+	processor        *imageProcessor
+	newProcessor     func(bool, bool) (*imageProcessor, error)
+	originalPath     string
 }
-type scanResult struct{ Bytes, Width, Height int }
+type scanResult struct {
+	Bytes, Width, Height int
+	processing           processingInfo
+	warning              string
+	originalPath         string
+}
 
 func parseArea(text string) (region, error) {
 	if strings.EqualFold(text, "full") {
@@ -140,6 +149,13 @@ func (c *client) scan(ctx context.Context, opts options, output string) (result 
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return result, err
 	}
+	if opts.originalPath != "" {
+		if _, err := os.Lstat(opts.originalPath); err == nil {
+			return result, errors.New("原图文件已存在，不会覆盖")
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return result, err
+		}
+	}
 	file, err := os.CreateTemp(filepath.Dir(output), ".goscanner-*"+ext+".part")
 	if err != nil {
 		return result, fmt.Errorf("不能创建暂存文件：%w", err)
@@ -206,10 +222,36 @@ func (c *client) scan(ctx context.Context, opts options, output string) (result 
 	if err != nil {
 		return result, errors.New("图像无法完整解码")
 	}
+	if opts.originalPath != "" {
+		if err = saveOriginal(opts.originalPath, payload); err != nil {
+			return result, err
+		}
+		result.originalPath = opts.originalPath
+	}
 	if err = ctx.Err(); err != nil {
 		return result, err
 	}
-	if ext == ".png" {
+	if opts.processor != nil {
+		var processed image.Image
+		processed, result.processing, err = opts.processor.Process(picture)
+		if err != nil {
+			result.warning = err.Error()
+			result.processing.Changed = false
+			err = nil
+		} else {
+			picture = processed
+		}
+	}
+	if result.processing.Changed {
+		switch ext {
+		case ".jpg", ".jpeg":
+			err = jpeg.Encode(file, picture, &jpeg.Options{Quality: 95})
+		case ".png":
+			err = png.Encode(file, picture)
+		default:
+			err = tiff.Encode(file, picture, nil)
+		}
+	} else if ext == ".png" {
 		err = png.Encode(file, picture)
 	} else {
 		_, err = file.Write(payload)
@@ -236,5 +278,33 @@ func (c *client) scan(ctx context.Context, opts options, output string) (result 
 		return result, fmt.Errorf("发布文件失败；完整图像保留在 %s：%w", file.Name(), err)
 	}
 	success = true
-	return scanResult{Bytes: int(stat.Size()), Width: config.Width, Height: config.Height}, nil
+	result.Bytes, result.Width, result.Height = int(stat.Size()), picture.Bounds().Dx(), picture.Bounds().Dy()
+	return result, nil
+}
+
+func saveOriginal(path string, payload []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".goscanner-original-*.part")
+	if err != nil {
+		return err
+	}
+	keep := false
+	defer func() {
+		if !keep {
+			_ = os.Remove(f.Name())
+		}
+	}()
+	if _, err = f.Write(payload); err == nil {
+		err = f.Sync()
+	}
+	if e := f.Close(); err == nil {
+		err = e
+	}
+	if err != nil {
+		return fmt.Errorf("保存原图失败: %w", err)
+	}
+	if err = os.Link(f.Name(), path); err != nil {
+		keep = true
+		return fmt.Errorf("原图发布失败；保留在 %s: %w", f.Name(), err)
+	}
+	return nil
 }

@@ -1,6 +1,6 @@
 # 第一阶段验证记录
 
-> 本文保留第一阶段结果。后续已增加并验证 WSD 自动发现，见 [DISCOVERY-VERIFICATION.md](DISCOVERY-VERIFICATION.md)。下文“未验证自动发现”等范围描述仅指第一阶段。
+> 本文保留第一阶段结果。后续已增加并验证 WSD 自动发现，见 [DISCOVERY-VERIFICATION.md](DISCOVERY-VERIFICATION.md)。当前 GoCV/CGO 预处理的离线验证见 [PREPROCESSING-VERIFICATION.md](PREPROCESSING-VERIFICATION.md)。下文“无第三方模块”“CGO_ENABLED=0”“未验证自动发现”等描述仅指第一阶段，不代表当前分支。
 
 日期：2026-10-28。
 

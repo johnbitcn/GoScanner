@@ -9,3 +9,4 @@
 *.tiff
 *.png
 .goscanner-*.*.part
+*.onnx

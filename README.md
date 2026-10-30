@@ -1,8 +1,26 @@
 # GoScanner
 
-面向 HP Laser MFP 1188w 的 macOS WSD 命令行扫描工具。使用 Go 标准库和 `golang.org/x/image/tiff`，不需要 Python、HP 驱动、Avahi 或 SANE。
+面向 HP Laser MFP 1188w 的 macOS WSD 命令行扫描工具。使用 Go、GoCV 和 ONNX Runtime，不需要 Python、HP 驱动、Avahi 或 SANE。
 
 已实现 WSD 自动发现、能力查询、IP/端点地址配置、分辨率/色彩/区域选择、JPEG/TIFF/PNG 图像输出、PDF、手动连续扫描、超时与取消、安全保存。当前仍只支持 WSD 扫描，不支持 eSCL-only 设备。
+
+## AI 预处理准备
+
+源码最低 Go 版本为 1.26；构建需要 OpenCV 4.13、GoCV 0.43 和 CGO。设置 `PKG_CONFIG_PATH` 指向 OpenCV 的 `lib/pkgconfig`。本机路径见下方命令；其他平台须自行安装兼容的 OpenCV。
+
+启用 `--deskew` 或 `--autocrop` 前，将 [DocsaidLab DocAligner](https://github.com/DocsaidLab/DocAligner) 官方 heatmap 模型（[下载来源](https://drive.google.com/file/d/14vUH77v6yGg7zFctUgcT6BzV5Iisg4Dl/view)）的 `fastvit_sa24_h_e_bifpn_256_fp32.onnx` 放到 `~/.local/share/goscanner/models/`，并将 ONNX Runtime 1.31.1 共享库放到 `~/.local/opt/goscanner/onnxruntime-1.31.1/lib/`（macOS 文件名 `libonnxruntime.1.31.1.dylib`，Linux 为 `libonnxruntime.so.1.31.1`）。模型 SHA256 必须为 `7f9f5a8935b2eb22b3ee0245d34996063f54562df390d34714af2d76928695bc`。可分别用 `GOSCANNER_MODEL_PATH` 和 `GOSCANNER_ONNXRUNTIME_PATH` 覆盖完整路径。程序不会下载模型、联网推理或上传图像；创建扫描任务前检查模型、库和会话。默认不启用 AI，查询或发现不加载模型。
+
+固定 SHA256 用于确认模型图结构。启动时只建立一个正式推理会话，并用约定名称、类型和尺寸的张量执行一次暖机验证；输入输出契约不匹配或出现非有限热图时，在扫描前失败。连续页复用该会话，每页只推理一次。暖机不检查是否检测到纸张，也不另外建立元数据会话。
+
+两个开关独立：纠偏只旋转，裁切只裁外接矩形；同时启用时先旋转再裁切。裁切在预测四角外保留检测对象最长边的 2% 作为安全边距，至少 3 像素；边距不随平板上未使用的区域变大。这不是实际纸边精度保证，相邻对象仍需核对。边界检测不可靠或处理错误时警告并输出原图。启用时始终额外保留设备原始图像：单页 `foo-original.jpg` / `foo-original.tiff`；连续扫描及 PDF 使用 `foo-original-001.jpg` 等页号（PNG 的源图是 TIFF）。原图放在最终输出目录，不覆盖已有文件；处理或 PDF 失败仍保留已保存原图。输出和原图均为 `0600`，并以硬链接原子发布。
+
+纠偏使用预测四角的边线方向：相邻边按近似垂直、相对边按近似平行判断，两边关系的角度容差为 3°。只使用唯一的最大一致边集合（至少两条边），对边方向做等权圆周平均；不再让长边占更大权重。启用纠偏时，没有可信边对或最大集合不唯一就跳过旋转并警告；若边界本身有效且启用裁切，仍按未旋转的边界裁切。角度不可信时命令行显示 `Angle: 不可用`，不将其报告为 0°；小于 0.3° 时不旋转。3° 是初始容差，仍需用实际扫描样本评估。
+
+JPEG 有实际变换时以质量 95 编码；TIFF 和 PNG 不经过 JPEG。TIFF 变换后不保证保留原标签或位深。小角度和不需裁切时原始 JPEG/TIFF 字节不变。AI 不识别文字方向、不做透视校正；模型误定位仍可能裁掉内容，请核对原图。
+
+```bash
+./bin/goscanner-ai scan --deskew --autocrop -o scans/document.png
+```
 
 ## 快速开始
 
@@ -10,41 +28,42 @@
 
 ```bash
 # 构建。本机开发使用 Go 1.27.3，go.mod 声明最低 Go 1.26.0。
-CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
+export PKG_CONFIG_PATH="$HOME/.local/opt/goscanner/opencv-4.13.0/lib/pkgconfig"
+CGO_ENABLED=1 go build -trimpath -o bin/goscanner-ai .
 
 # 发现本机直连 IPv4 局域网中的 WSD 扫描仪，不扫描；输出 JSON。
-./bin/goscanner discover
+./bin/goscanner-ai discover
 
 # 自动发现并查询唯一扫描仪的能力与状态，不扫描。
-./bin/goscanner info
+./bin/goscanner-ai info
 
 # 默认：自动选择唯一扫描仪，A4、300 DPI、彩色。运行后开始一次扫描。
-./bin/goscanner scan
+./bin/goscanner-ai scan
 
 # 多设备时，显式复制 discover 返回的 endpoint，不猜测设备端口或路径。
-./bin/goscanner info --endpoint http://192.168.1.8:8018/wsd/scan
+./bin/goscanner-ai info --endpoint http://192.168.1.8:8018/wsd/scan
 
 # 兼容原用法：显式 IP，使用 HP 的固定端口与路径，不进行自动发现。
-./bin/goscanner info --host 192.168.1.8
+./bin/goscanner-ai info --host 192.168.1.8
 
 # 灰度，自定义区域：从左上角向右 10 mm、向下 10 mm，取 50 × 50 mm。
-./bin/goscanner scan --dpi 150 --mode gray --area 10,10,50,50 -o scans/crop.jpg
+./bin/goscanner-ai scan --dpi 150 --mode gray --area 10,10,50,50 -o scans/crop.jpg
 
 # 保存到其他目录；已有文件不会被覆盖。
-./bin/goscanner scan -o ~/Desktop/scan.jpg --timeout 2m
+./bin/goscanner-ai scan -o ~/Desktop/scan.jpg --timeout 2m
 
 # 保存设备原生未压缩 TIFF，或由 TIFF 无损转换为 PNG。
-./bin/goscanner scan -o scans/document.tiff
-./bin/goscanner scan -o scans/document.png
+./bin/goscanner-ai scan -o scans/document.tiff
+./bin/goscanner-ai scan -o scans/document.png
 
 # 显式扫描完整平板，默认仍为 A4。
-./bin/goscanner scan --area full -o scans/full.png
+./bin/goscanner-ai scan --area full -o scans/full.png
 
 # 手动连续扫描：立即扫描第一页，换页后按任意键继续，单独按 Esc 结束。
 # 依次保存 scans/document-001.jpg、scans/document-002.jpg 等。
-./bin/goscanner scan --manual -o scans/document.jpg
+./bin/goscanner-ai scan --manual -o scans/document.jpg
 
-./bin/goscanner --help
+./bin/goscanner-ai --help
 ```
 
 **行为变更：不再默认连接 `192.168.1.8`。** 未指定 `--host` 或 `--endpoint` 时先自动发现；只在发现一项扫描端点且没有发现警告时使用它。多项、零项或发现不完整时停止，不会退回旧 IP，也不会选择列表第一项。
@@ -75,6 +94,8 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 | `-o` | 自动生成 JPEG 路径 | 仅 scan；新 `.jpg`、`.jpeg`、`.tif`、`.tiff`、`.png` 或 `.pdf` 文件路径，扩展名不区分大小写 |
 | `--manual` | `false` | 仅 scan；手动换页，JPEG/TIFF/PNG 按页保存，PDF 默认合并为一个文档 |
 | `--single-page` | `false` | 仅用于 PDF；每页独立保存，连续扫描时文件名带序号 |
+| `--deskew` | `false` | AI 四角定位后纠偏；只旋转，不裁切 |
+| `--autocrop` | `false` | AI 四角定位后裁切；只裁切，不旋转 |
 
 **默认扫描区域已恢复为 `a4`（210 × 297 mm）。** `--area full` 继续保留：直接使用设备声明的最大平板范围，不通过毫米换算。HP 1188w 声明的范围约为 216 × 298 mm。完整平板可能包含纸外背景，不能恢复设备不可扫描边缘的内容；程序不自动识别纸张边缘或二次裁切。
 
@@ -90,7 +111,7 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 ## TIFF 与 PNG 输出
 
 - `.tif` / `.tiff`：请求设备原生单页未压缩 TIFF，完整解码校验后原样保存附件字节，不重新编码。
-- `.png`：同样请求原生 TIFF，解码后用 Go PNG 编码器无损保存；不经过 JPEG，不改变像素尺寸，不裁切或缩放。程序没有另外写入 PNG 的 DPI 元数据。
+- `.png`：同样请求原生 TIFF，解码后用 Go PNG 编码器无损保存；不经过 JPEG；未开启 AI 时不改变像素尺寸、不裁切或缩放。程序没有另外写入 PNG 的 DPI 元数据。
 - 不指定 `-o` 时，仍保存为 JPEG；JPEG 和 PDF 继续请求 `jfif`，PDF 直接嵌入原始 JPEG。
 - `--manual -o scans/document.tiff` 或 `--manual -o scans/document.png` 分别生成 `document-001.tiff` / `.png` 等文件；不合并为多页 TIFF。`--single-page` 仍只用于 PDF。
 - 彩色和灰度均已通过模拟设备测试；覆盖原生 TIFF 字节不变、PNG 逐像素一致、大小写扩展名、连续扫描、损坏/超限图像拒绝、文件冲突和失败清理。实机已验证 A4 彩色 TIFF/PNG，以及 full 灰度 TIFF；其他组合和新格式的连续换页仍待实测，见 [联机记录](TIFF-PNG-VERIFICATION.md)。
@@ -98,7 +119,7 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 ## 手动连续扫描
 
 ```bash
-./bin/goscanner scan --manual --host 192.168.1.8 --mode gray -o ~/Desktop/document.jpg
+./bin/goscanner-ai scan --manual --host 192.168.1.8 --mode gray -o ~/Desktop/document.jpg
 ```
 
 1. 在平板上放好第一页，运行命令。程序立即扫描。
@@ -120,13 +141,13 @@ CGO_ENABLED=0 go build -trimpath -o bin/goscanner .
 
 ```bash
 # 单次扫描：保存一页 PDF。
-./bin/goscanner scan -o scans/page.pdf
+./bin/goscanner-ai scan -o scans/page.pdf
 
 # 连续扫描：按 Esc 结束后，按扫描顺序合并为一个 document.pdf。
-./bin/goscanner scan --manual -o scans/document.pdf
+./bin/goscanner-ai scan --manual -o scans/document.pdf
 
 # 单页模式：每页立即保存为独立 PDF，文件名为 page-001.pdf、page-002.pdf……
-./bin/goscanner scan --manual --single-page -o scans/page.pdf
+./bin/goscanner-ai scan --manual --single-page -o scans/page.pdf
 ```
 
 - `--single-page` 仅用于 `.pdf` 输出；不启用 `--manual` 时，仍只扫描一次，使用指定的原文件名。
@@ -194,6 +215,37 @@ HTTP 客户端不使用代理环境变量，不跟随重定向，不访问 XOP �
 
 WSD 使用明文 HTTP，只在可信局域网运行，不要把端口暴露到互联网。当前项目位于 Google Drive 同步路径内，扫描文件可能自动上传；敏感文档请用 `-o` 指定非同步目录。
 
+## OpenCV 构建依赖
+
+需要 C/C++ 编译工具、CMake、`pkg-config`，以及与 GoCV 匹配的 OpenCV。本分支固定 GoCV `v0.43.0`，使用 OpenCV `4.13.0` 验证。不要直接安装当前 Homebrew 默认的 OpenCV 5；`opencv@4` 也不保证仍为匹配的小版本。
+
+下面是 macOS 本地隔离安装示例，不写入系统库目录，不升级已有 Homebrew 依赖。先安装 Xcode Command Line Tools，并确保 `cmake` 和 `pkg-config` 可用。首次克隆源码、下载 Go 模块需要网络；准备完成后，构建和合成图像测试不需要扫描仪。
+
+```bash
+prefix="$HOME/.local/opt/goscanner/opencv-4.13.0"
+# 如目标已存在，先核对版本，不覆盖其他安装。
+git clone --depth 1 --branch 4.13.0 https://github.com/opencv/opencv.git /tmp/goscanner-opencv-source
+cmake -S /tmp/goscanner-opencv-source -B /tmp/goscanner-opencv-build \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" \
+  -DCMAKE_INSTALL_NAME_DIR="$prefix/lib" -DCMAKE_INSTALL_RPATH="$prefix/lib" \
+  -DBUILD_LIST=core,imgproc,imgcodecs,calib3d,dnn,features2d,highgui,objdetect,photo,video,videoio \
+  -DOPENCV_GENERATE_PKGCONFIG=ON -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF \
+  -DBUILD_EXAMPLES=OFF -DBUILD_opencv_apps=OFF -DBUILD_JAVA=OFF \
+  -DBUILD_opencv_python2=OFF -DBUILD_opencv_python3=OFF \
+  -DWITH_FFMPEG=OFF -DWITH_GSTREAMER=OFF -DWITH_QT=OFF -DWITH_VTK=OFF \
+  -DWITH_OPENEXR=OFF -DWITH_AVIF=OFF -DWITH_TIFF=OFF -DWITH_WEBP=OFF \
+  -DWITH_JASPER=OFF -DWITH_OPENJPEG=OFF -DWITH_PROTOBUF=OFF \
+  -DWITH_IPP=OFF -DWITH_OPENCL=OFF -DWITH_LAPACK=OFF -DWITH_EIGEN=OFF \
+  -DWITH_KLEIDICV=OFF -DWITH_ADE=OFF
+cmake --build /tmp/goscanner-opencv-build --parallel 6
+cmake --install /tmp/goscanner-opencv-build
+export PKG_CONFIG_PATH="$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+pkg-config --modversion opencv4  # 应为 4.13.0
+CGO_ENABLED=1 go build -trimpath -o bin/goscanner-ai .
+```
+
+这是当前图像处理功能使用的精简 OpenCV 构建，不包含贡献模块、FFmpeg 或 Protobuf 模型导入支持。后续功能需要这些能力时再调整依赖。上述安装名设置用于让 macOS 正确找到动态库，不依赖临时的 `DYLD_LIBRARY_PATH`。若此前已链接另一处 OpenCV，切换安装位置后用 `go test -a ./...` / `go build -a .` 强制重新编译，避免 Go 缓存保留旧动态库引用。新终端执行构建或测试前，需要重新设置 `PKG_CONFIG_PATH`；运行程序仍须保留安装目录，不能只复制可执行文件到另一台机器。
+
 ## 开发验证
 
 ```bash
@@ -201,10 +253,10 @@ go test ./...
 go test -race -cover ./...
 go vet ./...
 
-CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -o bin/goscanner-darwin-amd64 .
+CGO_ENABLED=1 go build -trimpath -o bin/goscanner-ai .
 ```
 
-默认测试使用环回地址上的模拟 UDP/HTTP 服务和能力样本；macOS 下还使用本机伪终端，不向局域网发送多播、不访问真实打印机、不启动扫描。`-race` 属于开发验证，需相应编译工具；发布的 `CGO_ENABLED=0` 二进制不需要这些工具。
+默认测试使用环回地址上的模拟 UDP/HTTP 服务和能力样本；macOS 下还使用本机伪终端，不向局域网发送多播、不访问真实打印机、不启动扫描。`-race` 属于开发验证，需相应编译工具；构建需要 CGO 和 OpenCV 开发库。
 
 新增测试覆盖连续两页、每页超时与换页等待、文件冲突、后续页失败保留前页，以及 macOS 下的按键序列、终端恢复、CLI 的 Esc/Ctrl+C 退出码和无控制终端拒绝启动。Linux 按键行为尚未实测。
 

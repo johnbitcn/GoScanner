@@ -22,11 +22,12 @@ const usage = `GoScanner — WSD 局域网扫描工具
   goscanner info [--host IP | --endpoint URL] [--timeout 2m]
   goscanner scan [--host IP | --endpoint URL] [--dpi 300] [--mode color]
                  [--area a4] [-o scans/output.jpg|output.tiff|output.png|output.pdf] [--timeout 2m]
-                 [--manual] [--single-page]
+                 [--manual] [--single-page] [--deskew] [--autocrop]
 
 未指定设备时自动发现：只有一个扫描端点且发现过程完整时才使用它；多项时停止并列出地址。
 --host：显式使用该 IP 的 http://IP:8018/wsd/scan，保留原用法。
 --endpoint：显式使用 discover 返回的完整 HTTP 扫描地址。
+--deskew / --autocrop：可选 AI 纠偏 / 裁切；默认关闭，启用时保留原图。
 --mode：color、gray
 --area：a4（默认）、full（完整平板）或 x,y,width,height（毫米，原点为平板左上角）
 discover/info 不启动扫描；scan 会直接启动一次扫描。已有文件不会被覆盖。
@@ -63,8 +64,10 @@ func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	var dpi *int
 	var mode, area, output *string
-	var manual, singlePage bool
+	var manual, singlePage, deskew, autocrop bool
 	if command == "scan" {
+		flags.BoolVar(&deskew, "deskew", false, "AI 纠偏")
+		flags.BoolVar(&autocrop, "autocrop", false, "AI 裁切")
 		flags.BoolVar(&manual, "manual", false, "手动连续扫描：换页后按任意键继续，Esc 结束")
 		flags.BoolVar(&singlePage, "single-page", false, "PDF 每页保存为独立文档；须用 -o 指定 .pdf")
 		dpi = flags.Int("dpi", 300, "扫描分辨率；必须是设备声明的值")
@@ -111,7 +114,7 @@ func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "--single-page 须用 -o 指定 .pdf 文件")
 			return 2
 		}
-		opts = options{DPI: *dpi, Mode: *mode, Area: r}
+		opts = options{DPI: *dpi, Mode: *mode, Area: r, Deskew: deskew, Autocrop: autocrop}
 	}
 	ctx, cancel := context.WithTimeout(parent, *timeout)
 	defer cancel()
