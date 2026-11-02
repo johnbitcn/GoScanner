@@ -1,0 +1,21 @@
+{
+  "device": {
+    "host": "",
+    "port": 8018,
+    "path": "/wsd/scan"
+  },
+  "scan": {
+    "dpi": 150,
+    "mode": "color",
+    "area": "a4",
+    "timeout": "30s"
+  },
+  "output": {
+    "directory": ".",
+    "format": "jpg"
+  },
+  "processing": {
+    "deskew": false,
+    "autocrop": false
+  }
+}

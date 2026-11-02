@@ -4,6 +4,14 @@
 
 已实现 WSD 自动发现、能力查询、IP/端点地址配置、分辨率/色彩/区域选择、JPEG/TIFF/PNG 图像输出、PDF、手动连续扫描、超时与取消、安全保存。当前仍只支持 WSD 扫描，不支持 eSCL-only 设备。
 
+## 配置文件
+
+可选配置文件固定为 `~/.config/goscanner/config.json`。优先级为：**显式命令行参数 > 配置文件 > 内置默认值**。未指定设备时，用户从发现列表确认选择后，程序会登记默认设备；其他显式命令行覆盖不会写回配置。
+
+内置默认值：发现并确认选择设备、端口 `8018`、路径 `/wsd/scan`、A4、**150 DPI**、彩色、扫描超时 **30 秒**；在**执行命令时的当前工作目录**直接保存带时间戳的 JPEG，不再默认使用 `scans/` 子目录。
+
+配置示例见 [config.example.json](config.example.json)。首次使用条件、配置项、路径规则和临时覆盖方式见 [配置与首次使用](docs/configuration.md)。
+
 ## AI 预处理准备
 
 源码最低 Go 版本为 1.26；构建需要 OpenCV 4.13、GoCV 0.43 和 CGO。设置 `PKG_CONFIG_PATH` 指向 OpenCV 的 `lib/pkgconfig`。本机路径见下方命令；其他平台须自行安装兼容的 OpenCV。
@@ -36,17 +44,21 @@ CGO_ENABLED=1 go build -trimpath -o bin/goscanner-ai .
 # 发现本机直连 IPv4 局域网中的 WSD 扫描仪，不扫描；输出 JSON。
 ./bin/goscanner-ai discover
 
-# 自动发现并查询唯一扫描仪的能力与状态，不扫描。
+# 无默认设备时发现并列出设备，输入编号确认后登记默认设备并查询；不扫描。
 ./bin/goscanner-ai info
 
-# 默认：自动选择唯一扫描仪，A4、300 DPI、彩色。运行后开始一次扫描。
+# 默认 A4、150 DPI、彩色、30 秒超时，在当前工作目录保存 JPEG。
+# 没有默认设备时先选择确认；即使只发现一台，也不会自动开始扫描。
 ./bin/goscanner-ai scan
 
-# 多设备时，显式复制 discover 返回的 endpoint，不猜测设备端口或路径。
-./bin/goscanner-ai info --endpoint http://192.168.1.8:8018/wsd/scan
-
-# 兼容原用法：显式 IP，使用 HP 的固定端口与路径，不进行自动发现。
+# 显式指定 IP，不进行自动发现；端口和路径取配置值，缺省为 8018 和 /wsd/scan。
 ./bin/goscanner-ai info --host 192.168.1.8
+
+# 可单独覆盖端口和路径；实际值请以设备发布的地址为准。
+./bin/goscanner-ai info --host 192.168.1.8 --port 8018 --path /wsd/scan
+
+# 完整地址参数仍兼容，但不能与 --host、--port、--path 混用。
+./bin/goscanner-ai info --endpoint http://192.168.1.8:8018/wsd/scan
 
 # 灰度，自定义区域：从左上角向右 10 mm、向下 10 mm，取 50 × 50 mm。
 ./bin/goscanner-ai scan --dpi 150 --mode gray --area 10,10,50,50 -o scans/crop.jpg
@@ -68,11 +80,11 @@ CGO_ENABLED=1 go build -trimpath -o bin/goscanner-ai .
 ./bin/goscanner-ai --help
 ```
 
-**行为变更：不再默认连接 `192.168.1.8`。** 未指定 `--host` 或 `--endpoint` 时先自动发现；只在发现一项扫描端点且没有发现警告时使用它。多项、零项或发现不完整时停止，不会退回旧 IP，也不会选择列表第一项。
+**设备选择：** 命令行和配置文件均未指定设备时，自动发现并列出设备；无论一台还是多台，都必须在交互终端输入编号并按 Enter 确认。确认后将实际 `host`、`port`、`path` 登记到用户配置，再继续查询或扫描。空输入不会自动选中，`q` / Ctrl+C 可取消。取消、没有交互终端或配置保存失败时不创建扫描任务。`discover` 仅列出设备，不选择、不写配置。
 
-显式 `--host IP` 保留旧用法：使用 `http://IP:8018/wsd/scan`。显式 `--endpoint URL` 支持发现得到的其他端口和路径。两者互斥，均跳过发现。地址必须使用 IP，不接受用户名、查询参数、片段或 DNS 主机名。
+显式 `--host IP` 使用所配置的端口与路径，缺省为 `8018`、`/wsd/scan`；已登记设备会跳过发现。兼容 `--endpoint URL`，它覆盖整组设备配置，不能与 `--host`、`--port`、`--path` 混用。地址必须使用 IP，不接受用户名、查询参数、片段或 DNS 主机名。旧配置中的 `device.endpoint` 须手动拆分，见 [配置说明](docs/configuration.md#设备地址与首次选择)。
 
-默认文件保存到**当前工作目录**的 `scans/scan-时间戳.jpg`，不是二进制所在目录。
+未配置输出目录且未指定 `-o` 时，文件直接保存到**当前工作目录**的 `scan-时间戳.jpg`，不是二进制所在目录。配置文件可以设置默认目录和格式；`-o` 同时覆盖这两项。
 
 本机已生成：
 
@@ -85,17 +97,21 @@ CGO_ENABLED=1 go build -trimpath -o bin/goscanner-ai .
 
 所有参数放在 `discover`、`info` 或 `scan` 子命令之后。
 
+以下为内置默认值；未显式传入的参数可由配置文件覆盖。
+
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `--host` | 无，自动发现 | info/scan；显式 IP，固定端口 8018 和路径 `/wsd/scan` |
-| `--endpoint` | 无，自动发现 | info/scan；完整 HTTP 扫描地址，与 --host 互斥 |
-| `--timeout` | discover 为 `10s`；其他为 `2m` | 默认限制整体任务，包含发现；手动模式分别限制发现和每页扫描，不包含换页等待；失败取消清理最多额外等待 10 秒 |
-| `--dpi` | `300` | 仅 scan；必须同时被设备的横向和纵向能力列表支持 |
+| `--host` | 无，发现后确认选择 | info/scan；扫描仪 IP，覆盖 `device.host` |
+| `--port` | `8018` | info/scan；覆盖 `device.port`，范围 1–65535 |
+| `--path` | `/wsd/scan` | info/scan；覆盖 `device.path`，必须以 `/` 开头 |
+| `--endpoint` | 无 | 兼容完整 HTTP 地址；与 --host、--port、--path 互斥，覆盖整组设备配置 |
+| `--timeout` | discover 为 `10s`；info 为 `2m`；scan 为 `30s` | 分别限制发现和选定设备后的操作；手动模式按每页计时，不包含设备选择或换页等待；失败取消清理最多额外等待 10 秒 |
+| `--dpi` | `150` | 仅 scan；必须同时被设备的横向和纵向能力列表支持 |
 | `--mode` | `color` | 仅 scan；`color` 或 `gray` |
 | `--area` | `a4` | 仅 scan；A4，或指定 `full`、`x,y,width,height`（毫米） |
-| `-o` | 自动生成 JPEG 路径 | 仅 scan；新 `.jpg`、`.jpeg`、`.tif`、`.tiff`、`.png` 或 `.pdf` 文件路径，扩展名不区分大小写 |
+| `-o` | 当前工作目录下自动生成 JPEG 路径 | 仅 scan；新 `.jpg`、`.jpeg`、`.tif`、`.tiff`、`.png` 或 `.pdf` 文件路径，扩展名不区分大小写 |
 | `--manual` | `false` | 仅 scan；手动换页，JPEG/TIFF/PNG 按页保存，PDF 默认合并为一个文档 |
-| `--single-page` | `false` | 仅用于 PDF；每页独立保存，连续扫描时文件名带序号 |
+| `--single-page` | `false` | 仅用于 PDF；由配置或 `-o` 选择 PDF，每页独立保存，连续扫描时文件名带序号 |
 | `--deskew` | `false` | AI 四角定位后纠偏；只旋转，不裁切 |
 | `--autocrop` | `false` | AI 四角定位后裁切；只裁切，不旋转 |
 
@@ -139,7 +155,7 @@ CGO_ENABLED=1 go build -trimpath -o bin/goscanner-ai .
 
 ## 保存为 PDF
 
-用 `-o` 指定 `.pdf` 扩展名即可选择 PDF。不指定 `-o` 时仍默认保存 JPEG。
+用 `-o` 指定 `.pdf` 扩展名，或将配置中的 `output.format` 设为 `pdf`，即可选择 PDF。两者均未指定时仍默认保存 JPEG。
 
 ```bash
 # 单次扫描：保存一页 PDF。
@@ -169,12 +185,12 @@ PDF 已通过模拟扫描测试、文档结构检查，并在本机使用 `qpdf`
 - 按实际 QName 命名空间识别 `ScanDeviceType`，再从元数据验证 `ScannerServiceType`，不会把只有打印服务的设备当成扫描仪。
 - 读取扫描服务真实地址，不假定端口 8018。结果按扫描端点去重和排序，同一设备若确有多个不同端点，可能显示多项；此时要求显式选择。
 - 元数据地址与扫描地址都必须是响应源 IP 上的无凭据 HTTP 地址。不会访问设备顺带发布的其他 IP、外部 URL 或 DNS 名称。
-- 有接口或元数据失败时，`discover` 在 stderr 输出警告，stdout 仍输出成功发现的 JSON 数组。自动 info/scan 遇到这些警告会拒绝自动选择，避免把不完整结果当成完整设备列表。
+- 有接口或元数据失败时，`discover` 在 stderr 输出警告，stdout 仍输出成功发现的 JSON 数组。info/scan 同样显示警告；如仍有可用设备，由用户明确选择，不自动采用第一台。
 - 发现成功仅表示设备发布了 WSD 扫描服务；`info`/`scan` 仍要读取平板能力，扫描前还要验证请求的格式、色彩、分辨率与区域。
 - 不支持 IPv6 多播发现、WS-Discovery 2009、eSCL-only、HTTPS-only、仅发布主机名的发现地址、仅提供 URN/引用参数而无绝对 HTTP 扫描端点的服务、跨子网发现或仅靠 USB 的设备。
-- 设备休眠、Wi-Fi 客户端隔离、VPN、防火墙或系统局域网权限可能影响发现。可先唤醒设备，或用显式 `--host` / `--endpoint`。没有后台常驻服务或发现缓存。
+- 设备休眠、Wi-Fi 客户端隔离、VPN、防火墙或系统局域网权限可能影响发现。可先唤醒设备，或用显式 `--host` / `--endpoint`。没有后台常驻服务；从列表确认选择的设备会登记到用户配置。
 
-本机已在 `en0` 发现 HP 1188w，并通过不带地址参数的 `info` 完成自动选择和能力读取。初版复核中曾有一次间歇性漏发现；加入有限重发后，连续五组 `discover` + 自动 `info` 均成功，但不能保证所有网络环境都不漏设备。本轮发现验证不创建扫描任务。发现验证记录见 [DISCOVERY-VERIFICATION.md](DISCOVERY-VERIFICATION.md)。
+此前版本已在本机 `en0` 发现 HP 1188w，并通过不带地址参数的 `info` 完成自动选择和能力读取。当前交互选择与登记流程已用模拟设备和伪终端测试，尚未做新的实机验证。初版复核中曾有一次间歇性漏发现；加入有限重发后，连续五组 `discover` + 自动 `info` 均成功，但不能保证所有网络环境都不漏设备。本轮发现验证不创建扫描任务。发现验证记录见 [DISCOVERY-VERIFICATION.md](DISCOVERY-VERIFICATION.md)。
 
 ## 已完成的实机验证
 
@@ -264,4 +280,4 @@ CGO_ENABLED=1 go build -trimpath -o bin/goscanner-ai .
 
 新增 `golang.org/x/image v0.47.0` 用于 TIFF 编解码；该安全版本要求 Go 1.26.0，因此同步提高源码构建要求。锁实现针对 Darwin/Linux；Linux 未做实机扫描验证，Windows 构建未实现。最低 Go 1.26 版本尚未单独测试。
 
-源码按功能放在同一 `main` 包中，没有额外的服务层、插件框架或配置文件。`testdata/scanner-elements.xml` 来自此前成功的只读能力查询，不含扫描任务令牌。
+源码按功能放在同一 `main` 包中，没有额外的服务层或插件框架。`config.go` 使用标准库读取用户 JSON 配置；`config.example.json` 仅为示例，不会自动加载。`testdata/scanner-elements.xml` 来自此前成功的只读能力查询，不含扫描任务令牌。

@@ -192,7 +192,7 @@ func TestProbeInterfaceLocalUDP(t *testing.T) {
 	}
 }
 
-func TestResolveCandidatesAndSelection(t *testing.T) {
+func TestResolveCandidates(t *testing.T) {
 	c := testClient(t, func(w http.ResponseWriter, r *http.Request, action string, _ []byte) {
 		if action != "GetMetadata" {
 			t.Errorf("unexpected action %s", action)
@@ -204,19 +204,8 @@ func TestResolveCandidatesAndSelection(t *testing.T) {
 	if err != nil || len(warnings) != 0 || len(devices) != 1 {
 		t.Fatalf("resolve/dedupe: %+v %v %v", devices, warnings, err)
 	}
-	endpoint, err := chooseDevice(devices, warnings)
-	if err != nil || !strings.HasSuffix(endpoint, "/vendor/scan") {
-		t.Fatalf("single device selection: %s %v", endpoint, err)
-	}
-	for _, result := range []struct {
-		devices  []scannerDevice
-		warnings []string
-	}{
-		{nil, nil}, {append(devices, devices[0]), nil}, {devices, []string{"an interface failed"}},
-	} {
-		if _, err := chooseDevice(result.devices, result.warnings); err == nil {
-			t.Fatal("unsafe automatic selection")
-		}
+	if !strings.HasSuffix(devices[0].Endpoint, "/vendor/scan") {
+		t.Fatalf("wrong discovered endpoint: %+v", devices)
 	}
 	invalid := source
 	invalid.peer = netip.MustParseAddr("192.0.2.20")
