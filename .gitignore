@@ -10,3 +10,4 @@
 *.png
 .goscanner-*.*.part
 *.onnx
+__pycache__/
