@@ -30,7 +30,7 @@ JPEG 有实际变换时以质量 95 编码；TIFF 和 PNG 不经过 JPEG。TIFF 
 ./bin/goscanner-ai scan --deskew --autocrop -o scans/document.png
 ```
 
-Apple Silicon 的 Core ML 适配目前仅为离线实验，尚未接入正式扫描流程。分阶段时间成本与复现方法见 [COREML-TIMING.md](COREML-TIMING.md)。
+AI 预处理使用 ONNX Runtime 的 CPU 推理流程。
 
 ## 快速开始
 
