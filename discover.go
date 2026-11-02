@@ -478,16 +478,3 @@ func resolveCandidates(ctx context.Context, candidates []candidate, warnings []s
 	sort.Strings(warnings)
 	return devices, warnings, ctx.Err()
 }
-
-func chooseDevice(devices []scannerDevice, warnings []string) (string, error) {
-	if len(warnings) > 0 {
-		return "", errors.New("发现过程不完整；请用 discover 查看结果，并用 --endpoint 显式选择设备")
-	}
-	if len(devices) == 0 {
-		return "", errors.New("未发现 WSD 扫描仪；可唤醒设备后重试或使用 --host / --endpoint")
-	}
-	if len(devices) > 1 {
-		return "", errors.New("发现多个扫描端点；请用 discover 查看结果，并用 --endpoint 显式选择设备")
-	}
-	return devices[0].Endpoint, nil
-}

@@ -131,12 +131,13 @@ type client struct {
 }
 
 func newClient(host string) (*client, error) {
-	ip, err := netip.ParseAddr(host)
+	device := defaultConfig().Device
+	device.Host = host
+	endpoint, err := device.endpoint()
 	if err != nil {
-		return nil, errors.New("--host 必须是 IP 地址，不是 URL 或主机名")
+		return nil, err
 	}
-	endpoint := url.URL{Scheme: "http", Host: net.JoinHostPort(ip.Unmap().String(), "8018"), Path: "/wsd/scan"}
-	return newEndpointClient(endpoint.String())
+	return newEndpointClient(endpoint)
 }
 
 // A discovery reply may only send us back to its own source IP, never another host.

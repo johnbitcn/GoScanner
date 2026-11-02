@@ -13,6 +13,7 @@ import (
 )
 
 func TestCLIValidation(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	cases := []struct {
 		args []string
 		code int
@@ -30,6 +31,12 @@ func TestCLIValidation(t *testing.T) {
 		{[]string{"discover", "-h"}, 0}, {[]string{"discover", "--host", "127.0.0.1"}, 2},
 		{[]string{"info", "--host", ""}, 2}, {[]string{"info", "--endpoint", ""}, 2},
 		{[]string{"info", "--host", "127.0.0.1", "--endpoint", "http://127.0.0.1/wsd/scan"}, 2},
+		{[]string{"info", "--endpoint", "http://127.0.0.1/scan", "--port", "8018"}, 2},
+		{[]string{"info", "--endpoint", "http://127.0.0.1/scan", "--path", "/scan"}, 2},
+		{[]string{"info", "--host", "127.0.0.1", "--port", "0"}, 2},
+		{[]string{"info", "--host", "127.0.0.1", "--port", "65536"}, 2},
+		{[]string{"info", "--host", "127.0.0.1", "--path", "scan"}, 2},
+		{[]string{"discover", "--port", "8018"}, 2},
 		{[]string{"info", "--endpoint", "http://scanner.local/scan"}, 2},
 		{[]string{"info", "--endpoint", "http://user:password@127.0.0.1/scan"}, 2},
 	}

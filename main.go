@@ -19,28 +19,37 @@ const usage = `GoScanner — WSD 局域网扫描工具
 
 用法：
   goscanner discover [--timeout 10s]
-  goscanner info [--host IP | --endpoint URL] [--timeout 2m]
-  goscanner scan [--host IP | --endpoint URL] [--dpi 300] [--mode color]
-                 [--area a4] [-o scans/output.jpg|output.tiff|output.png|output.pdf] [--timeout 2m]
+  goscanner info [--host IP] [--port 8018] [--path /wsd/scan] [--timeout 2m]
+  goscanner scan [--host IP] [--port 8018] [--path /wsd/scan] [--dpi 150] [--mode color]
+                 [--area a4] [-o output.jpg|output.tiff|output.png|output.pdf] [--timeout 30s]
                  [--manual] [--single-page] [--deskew] [--autocrop]
 
-未指定设备时自动发现：只有一个扫描端点且发现过程完整时才使用它；多项时停止并列出地址。
---host：显式使用该 IP 的 http://IP:8018/wsd/scan，保留原用法。
---endpoint：显式使用 discover 返回的完整 HTTP 扫描地址。
+info/scan 未指定 host 时自动发现并列出设备；即使只有一台，也须输入编号确认。
+确认后将 host、port、path 保存为默认设备；取消或无法保存时不启动扫描。
+discover 仅输出设备列表，不选择设备、不写配置。
+--host：扫描仪 IP；--port 默认 8018，--path 默认 /wsd/scan。
+兼容 --endpoint URL；它覆盖整组设备配置，不能与 --host、--port、--path 同时使用。
+配置文件：~/.config/goscanner/config.json；显式命令行参数 > 配置文件 > 内置默认值。
 --deskew / --autocrop：可选 AI 纠偏 / 裁切；默认关闭，启用时保留原图。
+可用 --deskew=false / --autocrop=false 临时关闭配置中启用的处理。
 --mode：color、gray
 --area：a4（默认）、full（完整平板）或 x,y,width,height（毫米，原点为平板左上角）
-discover/info 不启动扫描；scan 会直接启动一次扫描。已有文件不会被覆盖。
+discover/info 不启动扫描；scan 在设备已指定或确认选择后启动扫描。已有文件不会被覆盖。
 --manual：手动连续扫描；换页后按任意键继续，单独按 Esc 结束。
--o：支持 JPEG、TIFF、PNG、PDF；连续扫描默认合并为一个 PDF，图像格式按页编号保存。
+-o：支持 JPEG、TIFF、PNG、PDF；默认在当前工作目录生成带时间戳的 JPEG。
+连续扫描默认合并为一个 PDF，图像格式按页编号保存。
 TIFF 使用设备原生未压缩 TIFF；PNG 由原生 TIFF 无损转换，不经过 JPEG。
---single-page：仅用于 PDF，每页保存为独立文档；连续扫描时文件名带序号。
+--single-page：仅用于 PDF 输出（由配置或 -o 选择），每页独立保存；连续扫描时文件名带序号。
 PDF 在结束、中断或后续页失败时保存已完成的页面，不覆盖已有文件。
-手动模式需要交互终端；--timeout 分别限制发现和每页扫描，不包含换页等待。
+设备选择和手动模式需要交互终端；--timeout 不包含设备选择或换页等待。
 Ctrl+C 会尝试取消本客户端创建的任务；不会自动重试扫描任务。
 `
 
 func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
+	return runWithDiscovery(parent, args, stdout, stderr, discover)
+}
+
+func runWithDiscovery(parent context.Context, args []string, stdout, stderr io.Writer, find func(context.Context) ([]scannerDevice, []string, error)) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		fmt.Fprint(stdout, usage)
 		return 0
@@ -52,15 +61,22 @@ func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(stderr)
+	defaults := defaultConfig()
 	defaultTimeout := 2 * time.Minute
+	if command == "scan" {
+		defaultTimeout = defaultScanTimeout
+	}
 	if command == "discover" {
 		defaultTimeout = 10 * time.Second
 	}
 	timeout := flags.Duration("timeout", defaultTimeout, "任务超时；手动模式按发现/每页分别计时；失败清理最多额外等待 10 秒")
-	var host, endpoint string
+	device := defaults.Device
+	var endpoint string
 	if command != "discover" {
-		flags.StringVar(&host, "host", "", "显式指定打印机 IP，端口固定 8018；与 --endpoint 互斥")
-		flags.StringVar(&endpoint, "endpoint", "", "完整 HTTP 扫描地址；未指定设备时自动发现")
+		flags.StringVar(&device.Host, "host", "", "扫描仪 IP；未设置时发现并确认选择设备")
+		flags.IntVar(&device.Port, "port", defaults.Device.Port, "扫描服务端口")
+		flags.StringVar(&device.Path, "path", defaults.Device.Path, "扫描服务路径，以 / 开头")
+		flags.StringVar(&endpoint, "endpoint", "", "兼容完整 HTTP 地址；与 --host、--port、--path 互斥")
 	}
 	var dpi *int
 	var mode, area, output *string
@@ -69,11 +85,11 @@ func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
 		flags.BoolVar(&deskew, "deskew", false, "AI 纠偏")
 		flags.BoolVar(&autocrop, "autocrop", false, "AI 裁切")
 		flags.BoolVar(&manual, "manual", false, "手动连续扫描：换页后按任意键继续，Esc 结束")
-		flags.BoolVar(&singlePage, "single-page", false, "PDF 每页保存为独立文档；须用 -o 指定 .pdf")
-		dpi = flags.Int("dpi", 300, "扫描分辨率；必须是设备声明的值")
-		mode = flags.String("mode", "color", "color 或 gray")
-		area = flags.String("area", "a4", "a4（默认）、full（完整平板）或 x,y,width,height（毫米）")
-		output = flags.String("o", "", "新 JPEG、TIFF、PNG 或 PDF 文件；默认 scans/scan-时间戳.jpg")
+		flags.BoolVar(&singlePage, "single-page", false, "PDF 每页保存为独立文档；由配置或 -o 选择 PDF")
+		dpi = flags.Int("dpi", defaults.Scan.DPI, "扫描分辨率；必须是设备声明的值")
+		mode = flags.String("mode", defaults.Scan.Mode, "color 或 gray")
+		area = flags.String("area", defaults.Scan.Area, "a4（默认）、full（完整平板）或 x,y,width,height（毫米）")
+		output = flags.String("o", "", "新 JPEG、TIFF、PNG 或 PDF 文件；默认 ./scan-时间戳.jpg")
 	}
 	if err := flags.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -81,14 +97,30 @@ func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 		return 2
 	}
-	badAddress := false
+	badAddress, addressParts := false, false
 	flags.Visit(func(f *flag.Flag) {
+		if f.Name == "host" || f.Name == "port" || f.Name == "path" {
+			addressParts = true
+		}
 		if (f.Name == "host" || f.Name == "endpoint") && f.Value.String() == "" {
 			badAddress = true
 		}
 	})
-	if flags.NArg() != 0 || *timeout <= 0 || (host != "" && endpoint != "") || badAddress {
-		fmt.Fprintln(stderr, "地址不能空置；--host 与 --endpoint 互斥；不能使用多余的位置参数；--timeout 必须大于零")
+	if flags.NArg() != 0 || badAddress || (endpoint != "" && addressParts) {
+		fmt.Fprintln(stderr, "地址不能空置；--endpoint 与 --host、--port、--path 互斥；不能使用多余的位置参数")
+		return 2
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	if err := cfg.apply(flags, command); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 2
+	}
+	if *timeout <= 0 {
+		fmt.Fprintln(stderr, "--timeout / scan.timeout 必须大于零")
 		return 2
 	}
 	var opts options
@@ -103,7 +135,11 @@ func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		if *output == "" {
-			*output = filepath.Join("scans", "scan-"+time.Now().Format("20060102-150405.000000000")+".jpg")
+			*output, err = cfg.outputPath()
+			if err != nil {
+				fmt.Fprintln(stderr, err)
+				return 2
+			}
 		}
 		ext := strings.ToLower(filepath.Ext(*output))
 		if ext != ".jpg" && ext != ".jpeg" && ext != ".tif" && ext != ".tiff" && ext != ".png" && ext != ".pdf" {
@@ -111,7 +147,7 @@ func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		if singlePage && ext != ".pdf" {
-			fmt.Fprintln(stderr, "--single-page 须用 -o 指定 .pdf 文件")
+			fmt.Fprintln(stderr, "--single-page 仅适用于 PDF 输出；请用 -o 或配置 output.format 选择 PDF")
 			return 2
 		}
 		opts = options{DPI: *dpi, Mode: *mode, Area: r, Deskew: deskew, Autocrop: autocrop}
@@ -119,10 +155,10 @@ func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
 	ctx, cancel := context.WithTimeout(parent, *timeout)
 	defer cancel()
 	var c *client
-	var err error
-	if host != "" {
-		c, err = newClient(host)
-	} else if endpoint != "" {
+	if endpoint == "" && device.Host != "" {
+		endpoint, err = device.endpoint()
+	}
+	if err == nil && endpoint != "" {
 		c, err = newEndpointClient(endpoint)
 	}
 	if err != nil {
@@ -139,7 +175,8 @@ func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
 		defer keys.file.Close()
 	}
 	if c == nil {
-		devices, warnings, findErr := discover(ctx)
+		devices, warnings, findErr := find(ctx)
+		cancel()
 		for _, warning := range warnings {
 			fmt.Fprintf(stderr, "发现警告：%q\n", warning)
 		}
@@ -156,20 +193,27 @@ func run(parent context.Context, args []string, stdout, stderr io.Writer) int {
 			}
 			return 0
 		}
-		endpoint, err = chooseDevice(devices, warnings)
+		endpoint, err = chooseDevice(parent, devices, stderr)
 		if err != nil {
-			for _, device := range devices {
-				fmt.Fprintf(stderr, "%q  %s\n", device.Name, device.Endpoint)
-			}
 			fmt.Fprintln(stderr, err)
-			return 1
+			return exitCode(parent)
+		}
+		selected, err := deviceFromEndpoint(endpoint)
+		if err == nil {
+			err = saveDefaultDevice(selected)
+		}
+		if err != nil {
+			fmt.Fprintln(stderr, "登记默认设备失败；未启动扫描：", err)
+			return exitCode(parent)
 		}
 		c, err = newEndpointClient(endpoint)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
-			return 1
+			return exitCode(parent)
 		}
-		fmt.Fprintln(stderr, "自动选择：", endpoint)
+		fmt.Fprintln(stderr, "已登记默认设备：", endpoint)
+		ctx, cancel = context.WithTimeout(parent, *timeout)
+		defer cancel()
 	}
 	if command == "info" {
 		cap, err := c.info(ctx)
