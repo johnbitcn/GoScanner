@@ -1,0 +1,42 @@
+{
+  "name": "@johnbitcn/goscanner",
+  "version": "0.1.0",
+  "description": "Precompiled macOS Apple Silicon WSD scanner with bundled OpenCV, ONNX Runtime and DocAligner.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/johnbitcn/GoScanner.git"
+  },
+  "homepage": "https://github.com/johnbitcn/GoScanner#readme",
+  "bugs": {
+    "url": "https://github.com/johnbitcn/GoScanner/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "bin": {
+    "goscanner": "npm/cli.cjs"
+  },
+  "files": [
+    "runtime/",
+    "npm/cli.cjs",
+    "npm/check-runtime.cjs",
+    "npm/dependencies.json",
+    "docs/configuration.md",
+    "docs/npm.md",
+    "config.example.json"
+  ],
+  "scripts": {
+    "test": "node --test npm/*.test.cjs",
+    "prepack": "node npm/check-runtime.cjs",
+    "prepublishOnly": "npm test && node npm/check-runtime.cjs"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

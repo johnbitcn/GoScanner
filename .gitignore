@@ -1,4 +1,10 @@
 /bin/
+/.build/
+/dist/
+/runtime/
+/node_modules/
+__pycache__/
+/*.tgz
 /scans/
 /verification/
 /coverage.out

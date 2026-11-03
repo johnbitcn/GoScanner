@@ -4,6 +4,19 @@
 
 已实现 WSD 自动发现、能力查询、IP/端点地址配置、分辨率/色彩/区域选择、JPEG/TIFF/PNG 图像输出、PDF、手动连续扫描、超时与取消、安全保存。当前仍只支持 WSD 扫描，不支持 eSCL-only 设备。
 
+## npm 安装
+
+npm 包 `@johnbitcn/goscanner` 面向 **macOS 14+、Apple Silicon（arm64）**，自带预编译程序、OpenCV、ONNX Runtime 和 DocAligner 模型。安装时不编译，不执行安装脚本，也不额外下载运行库或模型。发布到 npm 后可执行：
+
+```bash
+npm install -g @johnbitcn/goscanner
+goscanner --help
+```
+
+用户只需 arm64 版 Node.js 22+ 和 npm，不需要 Go、Xcode、Homebrew、Python 或单独安装原生库。即使使用 `--ignore-scripts` 也可安装。AI 仍由 `--deskew`、`--autocrop` 显式启用；不上传图像。
+
+手动 Actions 构建、产物验收和 npm 发布见 [npm 安装与发布](docs/npm.md)。Actions 不自动发布 npm，也不创建 GitHub Release。包名及发布权限待发布者确认。下文中的 `./bin/goscanner-ai` 可替换为 npm 安装后的 `goscanner`。
+
 ## 配置文件
 
 可选配置文件固定为 `~/.config/goscanner/config.json`。优先级为：**显式命令行参数 > 配置文件 > 内置默认值**。未指定设备时，用户从发现列表确认选择后，程序会登记默认设备；其他显式命令行覆盖不会写回配置。
@@ -13,6 +26,8 @@
 配置示例见 [config.example.json](config.example.json)。首次使用条件、配置项、路径规则和临时覆盖方式见 [配置与首次使用](docs/configuration.md)。
 
 ## AI 预处理准备
+
+**npm 用户不需要执行本节的依赖准备。** npm 命令自动定位包内运行库和模型；以下步骤仅用于源码构建。显式设置的 `GOSCANNER_MODEL_PATH`、`GOSCANNER_ONNXRUNTIME_PATH` 仍优先于包内路径。
 
 源码最低 Go 版本为 1.26；构建需要 OpenCV 4.13、GoCV 0.43 和 CGO。设置 `PKG_CONFIG_PATH` 指向 OpenCV 的 `lib/pkgconfig`。本机路径见下方命令；其他平台须自行安装兼容的 OpenCV。
 
@@ -234,6 +249,8 @@ HTTP 客户端不使用代理环境变量，不跟随重定向，不访问 XOP �
 WSD 使用明文 HTTP，只在可信局域网运行，不要把端口暴露到互联网。当前项目位于 Google Drive 同步路径内，扫描文件可能自动上传；敏感文档请用 `-o` 指定非同步目录。
 
 ## OpenCV 构建依赖
+
+本节用于开发者源码构建。npm 用户无需安装这些工具或运行库；完整 npm 包的构建脚本会另外设置 macOS 14 部署目标并重写动态库路径，不能将本机开发库直接复制为分发包。
 
 需要 C/C++ 编译工具、CMake、`pkg-config`，以及与 GoCV 匹配的 OpenCV。本分支固定 GoCV `v0.43.0`，使用 OpenCV `4.13.0` 验证。不要直接安装当前 Homebrew 默认的 OpenCV 5；`opencv@4` 也不保证仍为匹配的小版本。
 
