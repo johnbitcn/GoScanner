@@ -100,7 +100,7 @@ dist/verification.json
 
 ## 人工验收与 npm 发布
 
-从 Actions 下载构建产物并解压 artifact 外层 ZIP，先在该目录执行：
+从 Actions 下载构建产物并解压 artifact 外层 ZIP。上传物保留目录结构：安装包、校验文件与验证记录位于 `dist/`，运行时清单位于 `runtime/manifest.json`。先进入解压后的 `dist/` 子目录执行：
 
 ```bash
 shasum -a 256 -c johnbitcn-goscanner-0.1.0.tgz.sha256
