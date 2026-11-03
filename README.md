@@ -6,10 +6,10 @@
 
 ## npm 安装
 
-npm 包 `@johnbitcn/goscanner` 面向 **macOS 14+、Apple Silicon（arm64）**，自带预编译程序、OpenCV、ONNX Runtime 和 DocAligner 模型。安装时不编译，不执行安装脚本，也不额外下载运行库或模型。发布到 npm 后可执行：
+npm 包 `@codingbone/goscanner` 面向 **macOS 14+、Apple Silicon（arm64）**，自带预编译程序、OpenCV、ONNX Runtime 和 DocAligner 模型。安装时不编译，不执行安装脚本，也不额外下载运行库或模型。发布到 npm 后可执行：
 
 ```bash
-npm install -g @johnbitcn/goscanner
+npm install -g @codingbone/goscanner
 goscanner --help
 ```
 

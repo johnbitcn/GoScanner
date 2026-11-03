@@ -1,5 +1,5 @@
 {
-  "name": "@johnbitcn/goscanner",
+  "name": "@codingbone/goscanner",
   "version": "0.1.0",
   "description": "Precompiled macOS Apple Silicon WSD scanner with bundled OpenCV, ONNX Runtime and DocAligner.",
   "license": "Apache-2.0",

@@ -7,7 +7,7 @@
 发布到 npm 后：
 
 ```bash
-npm install -g @johnbitcn/goscanner
+npm install -g @codingbone/goscanner
 goscanner --help
 goscanner scan --deskew --autocrop
 ```
@@ -48,7 +48,7 @@ OpenCV 的非系统依赖必须全部落在包内。构建脚本将 Mach-O 加�
 
 另外随包复制 OpenCV 许可证、其安装生成的第三方声明，以及实际链接的 Go 模块（GoCV、onnxruntime_go、x/image）和 Go 运行时许可证。修改 Mach-O 加载路径属于分发改动；权重不修改，许可证不删除。更新依赖时必须重新核对来源、版本、校验值、声明及使用条件，不把本项目的许可自动套用于第三方权重。
 
-本项目原创代码采用 [Apache License 2.0](../LICENSE)，`package.json` 声明 `Apache-2.0`，完整许可证随 npm 包放在根目录。第三方库和模型保留各自的许可证与声明，不统一改标为本项目许可证。npm 包名暂定 `@johnbitcn/goscanner`，版本 `0.1.0`；GitHub 用户名不代表 npm scope 所有权。正式公开发布前，发布者仍应确认 scope 权限及分发许可。添加许可证前生成的旧 tarball 不包含本项目许可文件，应重新运行 Actions，验收并发布新的产物。
+本项目原创代码采用 [Apache License 2.0](../LICENSE)，`package.json` 声明 `Apache-2.0`，完整许可证随 npm 包放在根目录。第三方库和模型保留各自的许可证与声明，不统一改标为本项目许可证。npm 包名为 `@codingbone/goscanner`，版本 `0.1.0`；GitHub 用户名不代表 npm scope 所有权。正式公开发布前，发布者仍应确认 scope 权限及分发许可。添加许可证前生成的旧 tarball 不包含本项目许可文件，应重新运行 Actions，验收并发布新的产物。
 
 ## Actions：只构建和保存产物
 
@@ -79,8 +79,8 @@ node scripts/verify-npm.cjs
 下载归档、OpenCV 源码及安装目录位于 `.build/`；生成的运行包位于 `runtime/`；最终文件位于：
 
 ```text
-dist/johnbitcn-goscanner-0.1.0.tgz
-dist/johnbitcn-goscanner-0.1.0.tgz.sha256
+dist/codingbone-goscanner-0.1.0.tgz
+dist/codingbone-goscanner-0.1.0.tgz.sha256
 dist/verification.json
 ```
 
@@ -103,8 +103,8 @@ dist/verification.json
 从 Actions 下载构建产物并解压 artifact 外层 ZIP。上传物保留目录结构：安装包、校验文件与验证记录位于 `dist/`，运行时清单位于 `runtime/manifest.json`。先进入解压后的 `dist/` 子目录执行：
 
 ```bash
-shasum -a 256 -c johnbitcn-goscanner-0.1.0.tgz.sha256
-npm install -g --ignore-scripts ./johnbitcn-goscanner-0.1.0.tgz
+shasum -a 256 -c codingbone-goscanner-0.1.0.tgz.sha256
+npm install -g --ignore-scripts ./codingbone-goscanner-0.1.0.tgz
 goscanner --help
 ```
 
@@ -114,8 +114,8 @@ goscanner --help
 
 ```bash
 npm login
-npm publish ./johnbitcn-goscanner-0.1.0.tgz --access public --dry-run
-npm publish ./johnbitcn-goscanner-0.1.0.tgz --access public
+npm publish ./codingbone-goscanner-0.1.0.tgz --access public --dry-run
+npm publish ./codingbone-goscanner-0.1.0.tgz --access public
 ```
 
 遵循账户的双因素认证要求；不在仓库或工作流中保存 npm 凭据。发布 tarball 不等于执行仓库的所有测试，应使用 Actions 已通过验证的产物与校验文件。npm 版本不能覆盖，后续发布需先修改 `package.json` 版本。

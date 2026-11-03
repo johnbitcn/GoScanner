@@ -13,6 +13,7 @@ const { checkRuntime } = require('./check-runtime.cjs');
 test('project declares Apache-2.0 and includes the complete license in its publish list', () => {
   const root = path.resolve(__dirname, '..');
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json')));
+  assert.equal(pkg.name, '@codingbone/goscanner');
   assert.equal(pkg.license, 'Apache-2.0');
   assert(pkg.files.includes('LICENSE'));
   const license = fs.readFileSync(path.join(root, 'LICENSE'), 'utf8');
