@@ -1,0 +1,51 @@
+name: Build npm package (macOS arm64)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # macos-14 runners were retired in November 2026; keep a fixed supported arm64 image.
+    # The package deployment target is still 14.0 and needs separate macOS 14 acceptance.
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Verify native Apple Silicon runner
+        run: test "$(uname -m)" = arm64
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Prepare build tools
+        run: |
+          python3 -c 'import sys; assert sys.version_info >= (3, 11), "Python 3.11+ required"'
+          command -v cmake || brew install cmake
+          command -v pkg-config || brew install pkgconf
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .build/downloads
+          key: npm-runtime-inputs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('npm/dependencies.json') }}
+      - name: Test npm launcher and package guards
+        run: npm test
+      - name: Build runtime, test Go code and run real model inference
+        run: python3 scripts/build-npm.py
+      - name: Pack and verify an offline installation without build dependencies
+        run: node scripts/verify-npm.cjs
+      - name: Upload package for manual acceptance (no npm publication or GitHub Release)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: goscanner-macos-arm64-${{ github.run_number }}
+          path: |
+            dist/*.tgz
+            dist/*.sha256
+            dist/verification.json
+            runtime/manifest.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
