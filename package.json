@@ -2,6 +2,7 @@
   "name": "@johnbitcn/goscanner",
   "version": "0.1.0",
   "description": "Precompiled macOS Apple Silicon WSD scanner with bundled OpenCV, ONNX Runtime and DocAligner.",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/johnbitcn/GoScanner.git"
@@ -23,6 +24,7 @@
     "goscanner": "npm/cli.cjs"
   },
   "files": [
+    "LICENSE",
     "runtime/",
     "npm/cli.cjs",
     "npm/check-runtime.cjs",

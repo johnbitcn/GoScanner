@@ -10,6 +10,16 @@ const path = require('node:path');
 const { test } = require('node:test');
 const { checkRuntime } = require('./check-runtime.cjs');
 
+test('project declares Apache-2.0 and includes the complete license in its publish list', () => {
+  const root = path.resolve(__dirname, '..');
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json')));
+  assert.equal(pkg.license, 'Apache-2.0');
+  assert(pkg.files.includes('LICENSE'));
+  const license = fs.readFileSync(path.join(root, 'LICENSE'), 'utf8');
+  assert.match(license, /Apache License\s+Version 2\.0, January 2004/);
+  assert.match(license, /END OF TERMS AND CONDITIONS/);
+});
+
 function fixture(t) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'goscanner npm ')));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

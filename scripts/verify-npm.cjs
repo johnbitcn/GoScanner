@@ -90,6 +90,8 @@ async function main() {
     const installed = path.join(destination, 'lib/node_modules', pkg.name);
     const cli = path.join(destination, 'bin/goscanner');
     checkRuntime(installed);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(installed, 'package.json'))).license, 'Apache-2.0');
+    assert.deepEqual(fs.readFileSync(path.join(installed, 'LICENSE')), fs.readFileSync(path.join(root, 'LICENSE')));
     command('go', ['test', '-count=1', '-run', '^TestNpmBundleScan$', '-v', '.'], {
       stdio: 'inherit', env: { ...process.env, CGO_ENABLED: '1', GOWORK: 'off',
         PKG_CONFIG_PATH: path.join(prefix, 'lib/pkgconfig'), GOSCANNER_TEST_CLI: cli },
@@ -102,7 +104,7 @@ async function main() {
     fs.writeFileSync(path.join(dist, 'verification.json'), JSON.stringify({
       package: pkg.name, version: pkg.version, platform: process.platform, arch: process.arch,
       testedKernel: os.release(), node: process.version, compressedBytes: packed.size, unpackedBytes: packed.unpackedSize,
-      checks: ['runtime SHA256 inventory', 'offline npm install with scripts disabled and Node-only PATH',
+      checks: ['runtime SHA256 inventory', 'Apache-2.0 metadata and complete project LICENSE', 'offline npm install with scripts disabled and Node-only PATH',
         'installed CLI ordinary and AI scans against loopback scanner', 'help and AI inference preflight with build libraries hidden'],
       limitations: ['No physical scanner test', 'Minimum macOS 14 compatibility needs a macOS 14 test host', 'No Developer ID signing or notarization'],
     }, null, 2) + '\n');

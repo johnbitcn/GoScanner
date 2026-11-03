@@ -48,7 +48,7 @@ OpenCV 的非系统依赖必须全部落在包内。构建脚本将 Mach-O 加�
 
 另外随包复制 OpenCV 许可证、其安装生成的第三方声明，以及实际链接的 Go 模块（GoCV、onnxruntime_go、x/image）和 Go 运行时许可证。修改 Mach-O 加载路径属于分发改动；权重不修改，许可证不删除。更新依赖时必须重新核对来源、版本、校验值、声明及使用条件，不把本项目的许可自动套用于第三方权重。
 
-本次不替项目选择源码许可证。npm 包名暂定 `@johnbitcn/goscanner`，版本 `0.1.0`；GitHub 用户名不代表 npm scope 所有权。正式公开发布前，发布者应确认 scope 权限、分发许可及项目自身的授权声明。
+本项目原创代码采用 [Apache License 2.0](../LICENSE)，`package.json` 声明 `Apache-2.0`，完整许可证随 npm 包放在根目录。第三方库和模型保留各自的许可证与声明，不统一改标为本项目许可证。npm 包名暂定 `@johnbitcn/goscanner`，版本 `0.1.0`；GitHub 用户名不代表 npm scope 所有权。正式公开发布前，发布者仍应确认 scope 权限及分发许可。添加许可证前生成的旧 tarball 不包含本项目许可文件，应重新运行 Actions，验收并发布新的产物。
 
 ## Actions：只构建和保存产物
 
@@ -89,7 +89,7 @@ dist/verification.json
 `verify-npm.cjs` 验证以下阶段：
 
 1. 检查运行包文件清单、SHA256、平台信息和不存在安装钩子。
-2. 使用 Node-only PATH、空 HOME、独立 npm 配置及缓存，离线安装 tarball，并禁用所有安装脚本。
+2. 使用 Node-only PATH、空 HOME、独立 npm 配置及缓存，离线安装 tarball，并禁用所有安装脚本。确认安装后的包声明 `Apache-2.0`，且根目录 `LICENSE` 与源码仓库中的完整许可证一致。
 3. 从安装后的 npm bin 链接调用程序，对环回地址的模拟 WSD 服务分别执行普通扫描和 AI 扫描，解码生成图像。测试图像是合成数据，不使用真实扫描仪。
 4. 临时移走本次构建的 OpenCV 安装目录。在移位安装的包中测试帮助和真实模型推理预检；之后只让环回服务返回 HTTP 500，确认不发布图像。不把这一步称为完整扫描成功。
 5. 在 `finally` 中恢复构建目录并删除临时测试安装，输出校验文件和验证记录。

@@ -298,3 +298,9 @@ CGO_ENABLED=1 go build -trimpath -o bin/goscanner-ai .
 新增 `golang.org/x/image v0.47.0` 用于 TIFF 编解码；该安全版本要求 Go 1.26.0，因此同步提高源码构建要求。锁实现针对 Darwin/Linux；Linux 未做实机扫描验证，Windows 构建未实现。最低 Go 1.26 版本尚未单独测试。
 
 源码按功能放在同一 `main` 包中，没有额外的服务层或插件框架。`config.go` 使用标准库读取用户 JSON 配置；`config.example.json` 仅为示例，不会自动加载。`testdata/scanner-elements.xml` 来自此前成功的只读能力查询，不含扫描任务令牌。
+
+## 许可证
+
+本项目原创代码采用 [Apache License 2.0](LICENSE)。允许使用、修改、再分发和商用，具体条件以许可证全文为准。
+
+第三方库和 AI 模型保留各自的许可证，不因本项目的许可选择而改变。npm 包根目录包含本项目的 `LICENSE`；第三方许可证、版权及相关声明保留在 `runtime/licenses/`，来源与分发说明见 [npm 安装与发布](docs/npm.md#固定构建输入与许可)。
