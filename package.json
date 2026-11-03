@@ -30,6 +30,7 @@
     "npm/check-runtime.cjs",
     "npm/dependencies.json",
     "docs/configuration.md",
+    "docs/build.md",
     "docs/npm.md",
     "config.example.json"
   ],

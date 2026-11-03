@@ -1,306 +1,329 @@
 # GoScanner
 
-面向 HP Laser MFP 1188w 的 macOS WSD 命令行扫描工具。使用 Go、GoCV 和 ONNX Runtime，不需要 Python、HP 驱动、Avahi 或 SANE。
+**在 macOS 上使用 WSD 扫描仪，无需厂商专用扫描驱动。**
 
-已实现 WSD 自动发现、能力查询、IP/端点地址配置、分辨率/色彩/区域选择、JPEG/TIFF/PNG 图像输出、PDF、手动连续扫描、超时与取消、安全保存。当前仍只支持 WSD 扫描，不支持 eSCL-only 设备。
+部分扫描仪和打印扫描一体机提供 WSD 扫描服务，却缺少可用的 macOS 扫描支持。GoScanner 通过 WSD 与设备通信，让你从终端完成扫描、连续换页、图像处理和文件保存。
+
+项目目标是支持所有兼容 **WSD 扫描协议**的设备，不限制品牌和型号。这是兼容性目标，不是所有设备均已验证的承诺。目前实机验证以 **HP Laser MFP 1188w** 为主，当前能力与限制见[设备兼容性](#设备兼容性)。设备支持 WSD 打印，不代表它也支持 WSD 扫描。
 
 ## npm 安装
-
-npm 包 `@codingbone/goscanner` 面向 **macOS 14+、Apple Silicon（arm64）**，自带预编译程序、OpenCV、ONNX Runtime 和 DocAligner 模型。安装时不编译，不执行安装脚本，也不额外下载运行库或模型。发布到 npm 后可执行：
 
 ```bash
 npm install -g @codingbone/goscanner
 goscanner --help
 ```
 
-用户只需 arm64 版 Node.js 22+ 和 npm，不需要 Go、Xcode、Homebrew、Python 或单独安装原生库。即使使用 `--ignore-scripts` 也可安装。AI 仍由 `--deskew`、`--autocrop` 显式启用；不上传图像。
+要求 **macOS 14+、Apple Silicon（arm64）和 arm64 版 Node.js 22+**。Node.js 自带 npm。
 
-手动 Actions 构建、产物验收和 npm 发布见 [npm 安装与发布](docs/npm.md)。Actions 不自动发布 npm，也不创建 GitHub Release。包名及发布权限待发布者确认。下文中的 `./bin/goscanner-ai` 可替换为 npm 安装后的 `goscanner`。
+包内已包含扫描程序、OpenCV、ONNX Runtime 和 AI 模型。安装时不编译、不执行安装脚本，也不额外下载运行库或模型。无需安装 Go、Xcode、Homebrew、Python 或厂商驱动。
 
-## 配置文件
+## 第一次扫描
 
-可选配置文件固定为 `~/.config/goscanner/config.json`。优先级为：**显式命令行参数 > 配置文件 > 内置默认值**。未指定设备时，用户从发现列表确认选择后，程序会登记默认设备；其他显式命令行覆盖不会写回配置。
+1. 将扫描仪和 Mac 连接到同一局域网，唤醒设备，确认设备已启用 WSD 扫描服务。
+2. 将纸张放到扫描仪平板上。在终端进入希望保存文件的目录，运行：
 
-内置默认值：发现并确认选择设备、端口 `8018`、路径 `/wsd/scan`、A4、**150 DPI**、彩色、扫描超时 **30 秒**；在**执行命令时的当前工作目录**直接保存带时间戳的 JPEG，不再默认使用 `scans/` 子目录。
+   ```bash
+   goscanner scan
+   ```
 
-配置示例见 [config.example.json](config.example.json)。首次使用条件、配置项、路径规则和临时覆盖方式见 [配置与首次使用](docs/configuration.md)。
+3. 没有默认设备时，程序会发现设备并列出列表。输入编号，按 Enter 确认。即使只有一台，也需要确认；选择后会保存为默认设备。
+4. 扫描完成后，查看终端报告的文件路径。
 
-## AI 预处理准备
+默认使用 **A4、150 DPI、彩色、30 秒超时**，在当前工作目录保存 `scan-时间戳.jpg`。这些默认值可通过[配置文件](#配置文件)修改。已有文件不会被覆盖。
 
-**npm 用户不需要执行本节的依赖准备。** npm 命令自动定位包内运行库和模型；以下步骤仅用于源码构建。显式设置的 `GOSCANNER_MODEL_PATH`、`GOSCANNER_ONNXRUNTIME_PATH` 仍优先于包内路径。
+只想先查看设备、不启动扫描，可以运行 `goscanner info`。首次使用时，它同样会要求选择并登记默认设备。
 
-源码最低 Go 版本为 1.26；构建需要 OpenCV 4.13、GoCV 0.43 和 CGO。设置 `PKG_CONFIG_PATH` 指向 OpenCV 的 `lib/pkgconfig`。本机路径见下方命令；其他平台须自行安装兼容的 OpenCV。
+> 以下图片是功能示意，不是实机扫描结果。
 
-启用 `--deskew` 或 `--autocrop` 前，将 [DocsaidLab DocAligner](https://github.com/DocsaidLab/DocAligner) 官方 heatmap 模型（[下载来源](https://drive.google.com/file/d/14vUH77v6yGg7zFctUgcT6BzV5Iisg4Dl/view)）的 `fastvit_sa24_h_e_bifpn_256_fp32.onnx` 放到 `~/.local/share/goscanner/models/`，并将 ONNX Runtime 1.31.1 共享库放到 `~/.local/opt/goscanner/onnxruntime-1.31.1/lib/`（macOS 文件名 `libonnxruntime.1.31.1.dylib`，Linux 为 `libonnxruntime.so.1.31.1`）。模型 SHA256 必须为 `7f9f5a8935b2eb22b3ee0245d34996063f54562df390d34714af2d76928695bc`。可分别用 `GOSCANNER_MODEL_PATH` 和 `GOSCANNER_ONNXRUNTIME_PATH` 覆盖完整路径。程序不会下载模型、联网推理或上传图像；创建扫描任务前检查模型、库和会话。默认不启用 AI，查询或发现不加载模型。
+## 连续扫描
 
-固定 SHA256 用于确认模型图结构。启动时只建立一个正式推理会话，并用约定名称、类型和尺寸的张量执行一次暖机验证；输入输出契约不匹配或出现非有限热图时，在扫描前失败。连续页复用该会话，每页只推理一次。暖机不检查是否检测到纸张，也不另外建立元数据会话。
+<table>
+<tr>
+<td width="50%" valign="top">
+<p><strong>手动换页，一次完成多页文档。</strong></p>
+<p>程序立即扫描第一页。保存后提示换页，按任意键继续，无需回车。在换页等待时单独按 <code>Esc</code>，正常结束。</p>
+<p>选择 PDF 时，结束后按扫描顺序合并为一个文件。选择图像格式时，每页分别保存。</p>
+<pre><code>goscanner scan --manual -o document.pdf</code></pre>
+</td>
+<td width="50%"><img src="https://raw.githubusercontent.com/johnbitcn/GoScanner/main/docs/images/continuous-scan.svg" alt="连续扫描示意：逐页扫描后合并为多页 PDF" width="480"></td>
+</tr>
+</table>
 
-两个开关独立：纠偏只旋转，裁切只裁外接矩形；同时启用时先旋转再裁切。裁切在预测四角外保留检测对象最长边的 2% 作为安全边距，至少 3 像素；边距不随平板上未使用的区域变大。这不是实际纸边精度保证，相邻对象仍需核对。边界检测不可靠或处理错误时警告并输出原图。启用时始终额外保留设备原始图像：单页 `foo-original.jpg` / `foo-original.tiff`；连续扫描及 PDF 使用 `foo-original-001.jpg` 等页号（PNG 的源图是 TIFF）。原图放在最终输出目录，不覆盖已有文件；处理或 PDF 失败仍保留已保存原图。输出和原图均为 `0600`，并以硬链接原子发布。
+- 图像输出以 `document-001.jpg`、`document-002.jpg` 等命名，不生成无序号的 `document.jpg`。
+- 使用 `--manual --single-page -o page.pdf`，每页立即保存为 `page-001.pdf`、`page-002.pdf` 等独立 PDF。
+- 换页等待没有超时；`--timeout` 分别限制发现和每页扫描。手动模式需要交互终端，不能用于没有控制终端的后台任务。
+- `Ctrl+C` 表示取消，不是正常结束。后续页失败或取消时，已完成的图像不会删除；合并 PDF 模式也会尝试保存已完成页面。强制终止、崩溃或断电不能保证执行合并，可能留下暂存图像。
 
-纠偏使用预测四角的边线方向：相邻边按近似垂直、相对边按近似平行判断，两边关系的角度容差为 3°。只使用唯一的最大一致边集合（至少两条边），对边方向做等权圆周平均；不再让长边占更大权重。启用纠偏时，没有可信边对或最大集合不唯一就跳过旋转并警告；若边界本身有效且启用裁切，仍按未旋转的边界裁切。角度不可信时命令行显示 `Angle: 不可用`，不将其报告为 0°；小于 0.3° 时不旋转。3° 是初始容差，仍需用实际扫描样本评估。
+## 智能纠偏
 
-JPEG 有实际变换时以质量 95 编码；TIFF 和 PNG 不经过 JPEG。TIFF 变换后不保证保留原标签或位深。小角度和不需裁切时原始 JPEG/TIFF 字节不变。AI 不识别文字方向、不做透视校正；模型误定位仍可能裁掉内容，请核对原图。
+<table>
+<tr>
+<td width="50%" valign="top">
+<p><strong>识别纸张边界，校正放歪的页面。</strong></p>
+<p>使用本地 AI 模型定位四角，根据可信的边线方向旋转图像。单独启用纠偏时不裁切。</p>
+<p>适合纸张在平板上有小幅倾斜的情况。不识别文字方向，不做透视校正。</p>
+<pre><code>goscanner scan --deskew -o aligned.png</code></pre>
+</td>
+<td width="50%"><img src="https://raw.githubusercontent.com/johnbitcn/GoScanner/main/docs/images/deskew.svg" alt="智能纠偏示意：倾斜纸张经过旋转后对齐，保留周围画布" width="480"></td>
+</tr>
+</table>
+
+纠偏默认关闭。无法可靠判断角度时，程序警告并跳过旋转。启用后会额外保留设备原始图像，便于核对，不需要另外下载模型。
+
+## 智能裁切
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<p><strong>减少纸张周围的平板背景。</strong></p>
+<p>根据 AI 预测边界裁取外接矩形，并保留安全边距。单独启用裁切时不旋转纸张。</p>
+<p>可与纠偏一起使用：先旋转，再裁切。两项功能都在本机执行，不上传图像。</p>
+<pre><code>goscanner scan --autocrop -o cropped.png</code></pre>
+</td>
+<td width="50%"><img src="https://raw.githubusercontent.com/johnbitcn/GoScanner/main/docs/images/autocrop.svg" alt="智能裁切示意：在纸张周围识别边界，裁去多余背景并保留边距" width="480"></td>
+</tr>
+</table>
+
+同时启用两项处理：
 
 ```bash
-./bin/goscanner-ai scan --deskew --autocrop -o scans/document.png
+goscanner scan --deskew --autocrop -o document.png
 ```
 
-AI 预处理使用 ONNX Runtime 的 CPU 推理流程。
+- 边界检测不可靠或处理出错时，程序警告并输出原图。AI 可能误定位，**处理后应检查是否丢失内容**。
+- 单页原图命名为 `document-original.jpg` 或 `document-original.tiff`。连续扫描和 PDF 原图带页号，例如 `document-original-001.jpg`。PNG 的设备原图是 TIFF。
+- 原图保存在最终输出目录，已有原图不会被覆盖。处理或 PDF 保存失败时，已保存的原图仍会保留。
+- 裁切保留检测对象最长边的 2% 作为边距，至少 3 像素。这不能保证识别边界准确，也不能恢复设备未扫描到的纸边。
 
-## 快速开始
+## 多种输出格式
 
-在 `GoScanner/goscanner/` 仓库中执行：
+<table>
+<tr>
+<td width="50%" valign="top">
+<p><strong>按用途选择 JPG、PNG、TIFF 或 PDF。</strong></p>
+<p>用 <code>-o</code> 的扩展名选择格式，无需另外转换。图像可逐页保存，PDF 可合并多页。</p>
+<p>需要保留无损图像时选择 TIFF 或 PNG；需要整理多页文档时选择 PDF。</p>
+<pre><code>goscanner scan -o document.pdf</code></pre>
+</td>
+<td width="50%"><img src="https://raw.githubusercontent.com/johnbitcn/GoScanner/main/docs/images/output-formats.svg" alt="输出格式示意：同一扫描入口可选择 JPG、PNG、TIFF 或 PDF" width="480"></td>
+</tr>
+</table>
+
+| 格式 | 示例 | 保存方式与要求 |
+| --- | --- | --- |
+| JPEG | `goscanner scan -o page.jpg` | 请求设备 JPEG；默认输出格式，也支持 `.jpeg` |
+| TIFF | `goscanner scan -o page.tiff` | 请求设备原生单页未压缩 TIFF，也支持 `.tif`；不合并为多页 TIFF |
+| PNG | `goscanner scan -o page.png` | 请求原生 TIFF，再无损转换为 PNG；不经过 JPEG |
+| PDF | `goscanner scan --manual -o document.pdf` | 以 JPEG 图像生成 PDF；不含 OCR 文本层 |
+
+TIFF 和 PNG 都要求设备支持 `tiff-single-uncompressed`。设备不支持时，程序在扫描前报错，不会降级为 JPEG。
+
+未启用图像处理时，JPEG 和 TIFF 保留设备原始图像字节，PDF 直接嵌入原始 JPEG，不重复压缩。启用处理且实际发生变换后，JPEG 以质量 95 重新编码；TIFF 和 PNG 不经过 JPEG。变换后的 TIFF 不保证保留原标签或位深；PNG 不另写 DPI 元数据。
+
+## 命令详解
+
+命令格式：
+
+```text
+goscanner <discover|info|scan> [参数]
+```
+
+**所有参数都放在子命令之后。** 使用 `goscanner --help` 或 `goscanner scan --help` 查看帮助。
+
+### `discover`：发现设备
 
 ```bash
-# 构建。本机开发使用 Go 1.27.3，go.mod 声明最低 Go 1.26.0。
-export PKG_CONFIG_PATH="$HOME/.local/opt/goscanner/opencv-4.13.0/lib/pkgconfig"
-CGO_ENABLED=1 go build -trimpath -o bin/goscanner-ai .
-
-# 发现本机直连 IPv4 局域网中的 WSD 扫描仪，不扫描；输出 JSON。
-./bin/goscanner-ai discover
-
-# 无默认设备时发现并列出设备，输入编号确认后登记默认设备并查询；不扫描。
-./bin/goscanner-ai info
-
-# 默认 A4、150 DPI、彩色、30 秒超时，在当前工作目录保存 JPEG。
-# 没有默认设备时先选择确认；即使只发现一台，也不会自动开始扫描。
-./bin/goscanner-ai scan
-
-# 显式指定 IP，不进行自动发现；端口和路径取配置值，缺省为 8018 和 /wsd/scan。
-./bin/goscanner-ai info --host 192.168.1.8
-
-# 可单独覆盖端口和路径；实际值请以设备发布的地址为准。
-./bin/goscanner-ai info --host 192.168.1.8 --port 8018 --path /wsd/scan
-
-# 完整地址参数仍兼容，但不能与 --host、--port、--path 混用。
-./bin/goscanner-ai info --endpoint http://192.168.1.8:8018/wsd/scan
-
-# 灰度，自定义区域：从左上角向右 10 mm、向下 10 mm，取 50 × 50 mm。
-./bin/goscanner-ai scan --dpi 150 --mode gray --area 10,10,50,50 -o scans/crop.jpg
-
-# 保存到其他目录；已有文件不会被覆盖。
-./bin/goscanner-ai scan -o ~/Desktop/scan.jpg --timeout 2m
-
-# 保存设备原生未压缩 TIFF，或由 TIFF 无损转换为 PNG。
-./bin/goscanner-ai scan -o scans/document.tiff
-./bin/goscanner-ai scan -o scans/document.png
-
-# 显式扫描完整平板，默认仍为 A4。
-./bin/goscanner-ai scan --area full -o scans/full.png
-
-# 手动连续扫描：立即扫描第一页，换页后按任意键继续，单独按 Esc 结束。
-# 依次保存 scans/document-001.jpg、scans/document-002.jpg 等。
-./bin/goscanner-ai scan --manual -o scans/document.jpg
-
-./bin/goscanner-ai --help
+goscanner discover
 ```
 
-**设备选择：** 命令行和配置文件均未指定设备时，自动发现并列出设备；无论一台还是多台，都必须在交互终端输入编号并按 Enter 确认。确认后将实际 `host`、`port`、`path` 登记到用户配置，再继续查询或扫描。空输入不会自动选中，`q` / Ctrl+C 可取消。取消、没有交互终端或配置保存失败时不创建扫描任务。`discover` 仅列出设备，不选择、不写配置。
+在本机直连 IPv4 局域网内查找 WSD 扫描服务，输出 JSON 数组。不扫描，不选择设备，也不修改配置。
 
-显式 `--host IP` 使用所配置的端口与路径，缺省为 `8018`、`/wsd/scan`；已登记设备会跳过发现。兼容 `--endpoint URL`，它覆盖整组设备配置，不能与 `--host`、`--port`、`--path` 混用。地址必须使用 IP，不接受用户名、查询参数、片段或 DNS 主机名。旧配置中的 `device.endpoint` 须手动拆分，见 [配置说明](docs/configuration.md#设备地址与首次选择)。
+发现警告输出到标准错误；有可用结果时仍会列出。发现设备只表示它发布了 WSD 扫描服务，不代表所有扫描参数组合都可用。
 
-未配置输出目录且未指定 `-o` 时，文件直接保存到**当前工作目录**的 `scan-时间戳.jpg`，不是二进制所在目录。配置文件可以设置默认目录和格式；`-o` 同时覆盖这两项。
+### `info`：查看设备能力和状态
 
-本机已生成：
+```bash
+# 使用默认设备；未设置时先发现并要求选择。
+goscanner info
 
-- `bin/goscanner`：Darwin arm64；JPEG、原生 TIFF 和 PNG 已在 HP 1188w 联机验证，详见 [TIFF-PNG-VERIFICATION.md](TIFF-PNG-VERIFICATION.md)。
-- `bin/goscanner-darwin-amd64`：Darwin amd64，已交叉编译，尚未在 Intel Mac 上运行验证。
+# 临时指定设备 IP，跳过发现。
+goscanner info --host 192.168.1.8
 
-这些构建不需要第三方运行库。尚未做 Developer ID 分发签名或公证。
+# 指定设备实际发布的扫描服务地址。
+goscanner info --endpoint http://192.168.1.8:8018/wsd/scan
+```
 
-## 参数
+输出设备状态、支持的分辨率、色彩、格式和扫描尺寸，不启动扫描。能力列表是设备的原始声明，不代表本工具开放全部模式或参数组合。
 
-所有参数放在 `discover`、`info` 或 `scan` 子命令之后。
+### `scan`：扫描并保存
 
-以下为内置默认值；未显式传入的参数可由配置文件覆盖。
+```bash
+# A4、300 DPI、灰度，保存到桌面。
+goscanner scan --dpi 300 --mode gray -o ~/Desktop/document.jpg
+
+# 扫描设备声明的最大平板范围，而非默认 A4。
+goscanner scan --area full -o full.png
+
+# 从平板左上角向右 10 mm、向下 10 mm，扫描 50 × 50 mm。
+goscanner scan --area 10,10,50,50 -o region.jpg
+
+# 慢速设备或高分辨率扫描可适当增加超时。
+goscanner scan --timeout 2m -o document.pdf
+```
+
+分辨率、区域、色彩和源格式必须在设备支持范围内。`full` 使用设备声明的完整平板范围，可能包含纸外背景；它本身不启用智能裁切。
+
+### 设备与超时参数
+
+下表列出内置默认值；配置文件可以覆盖部分默认值。
+
+| 参数 | 适用命令 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `--host IP` | `info`、`scan` | 无 | 指定设备 IP；未设置且无默认设备时，发现并要求选择 |
+| `--port N` | `info`、`scan` | `8018` | 扫描服务端口，范围 1–65535 |
+| `--path PATH` | `info`、`scan` | `/wsd/scan` | 扫描服务路径，必须以 `/` 开头 |
+| `--endpoint URL` | `info`、`scan` | 无 | 完整 HTTP 扫描地址；覆盖整组设备配置，不能与上述三个参数混用 |
+| `--timeout DURATION` | 全部 | `discover`：`10s`；`info`：`2m`；`scan`：`30s` | 发现、查询或每页扫描的超时，例如 `30s`、`2m`；不限制设备选择或手动换页等待 |
+
+`8018` 和 `/wsd/scan` 不是所有 WSD 设备的统一地址。自动发现会读取设备发布的实际端口和路径；手动指定时应使用设备的真实值。
+
+地址必须使用 IP。完整地址不接受 DNS 主机名、用户名、查询参数或片段。
+
+超时或取消后，任务清理可能额外等待最多 10 秒。超时不是本地图像处理、PDF 合并和文件保存的硬实时停止保证。
+
+### 扫描与输出参数
 
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
-| `--host` | 无，发现后确认选择 | info/scan；扫描仪 IP，覆盖 `device.host` |
-| `--port` | `8018` | info/scan；覆盖 `device.port`，范围 1–65535 |
-| `--path` | `/wsd/scan` | info/scan；覆盖 `device.path`，必须以 `/` 开头 |
-| `--endpoint` | 无 | 兼容完整 HTTP 地址；与 --host、--port、--path 互斥，覆盖整组设备配置 |
-| `--timeout` | discover 为 `10s`；info 为 `2m`；scan 为 `30s` | 分别限制发现和选定设备后的操作；手动模式按每页计时，不包含设备选择或换页等待；失败取消清理最多额外等待 10 秒 |
-| `--dpi` | `150` | 仅 scan；必须同时被设备的横向和纵向能力列表支持 |
-| `--mode` | `color` | 仅 scan；`color` 或 `gray` |
-| `--area` | `a4` | 仅 scan；A4，或指定 `full`、`x,y,width,height`（毫米） |
-| `-o` | 当前工作目录下自动生成 JPEG 路径 | 仅 scan；新 `.jpg`、`.jpeg`、`.tif`、`.tiff`、`.png` 或 `.pdf` 文件路径，扩展名不区分大小写 |
-| `--manual` | `false` | 仅 scan；手动换页，JPEG/TIFF/PNG 按页保存，PDF 默认合并为一个文档 |
-| `--single-page` | `false` | 仅用于 PDF；由配置或 `-o` 选择 PDF，每页独立保存，连续扫描时文件名带序号 |
-| `--deskew` | `false` | AI 四角定位后纠偏；只旋转，不裁切 |
-| `--autocrop` | `false` | AI 四角定位后裁切；只裁切，不旋转 |
+| `--dpi N` | `150` | 分辨率，必须由设备支持 |
+| `--mode color\|gray` | `color` | 彩色或灰度；不支持原生黑白模式 |
+| `--area AREA` | `a4` | `a4`、`full` 或 `x,y,w,h`；自定义区域单位为毫米，原点在平板左上角 |
+| `-o PATH` | 当前目录的时间戳 JPEG | 输出路径；扩展名选择格式，同时覆盖配置中的目录和格式 |
+| `--manual` | `false` | 手动连续扫描，换页后按键继续，等待时按 Esc 结束 |
+| `--single-page` | `false` | 仅用于 PDF；连续扫描时每页保存为独立 PDF |
+| `--deskew` | `false` | 本地 AI 纠偏，只旋转，不裁切 |
+| `--autocrop` | `false` | 本地 AI 裁切，只裁切，不旋转 |
 
-**默认扫描区域已恢复为 `a4`（210 × 297 mm）。** `--area full` 继续保留：直接使用设备声明的最大平板范围，不通过毫米换算。HP 1188w 声明的范围约为 216 × 298 mm。完整平板可能包含纸外背景，不能恢复设备不可扫描边缘的内容；程序不自动识别纸张边缘或二次裁切。
+`--single-page` 不会自行开启连续扫描。未指定 `--manual` 时仍只扫描一页，使用指定文件名。
 
-区域坐标原点为平板左上角，毫米值会转换为 WSD 的 1/1000 英寸单位。宽高必须大于零，区域必须落在设备声明的范围内。`info` 的 `min_size` / `max_size` 使用 `size_unit` 指定的原始单位。
+## 配置文件
 
-能力查询中的 `formats`、`colors` 是**设备原始声明**，不表示客户端已开放全部组合：
+配置文件固定为：
 
-- `RGB24` 对应 `color`，`Grayscale8` 对应 `gray`。
-- 设备声明 `BlackAndWhite1`，但本次原生黑白 + JPEG 实测返回 `ClientErrorNoImagesAvailable`。因此没有开放 `--mode bw`，也不会悄悄降级为灰度或再创建一个任务。
-- TIFF 和 PNG 都要求设备声明支持 `tiff-single-uncompressed`。缺少该能力时，在创建扫描任务前报错，不降级为 JPEG。
-- 自动进纸与图形界面尚未实现。
-
-## TIFF 与 PNG 输出
-
-- `.tif` / `.tiff`：请求设备原生单页未压缩 TIFF，完整解码校验后原样保存附件字节，不重新编码。
-- `.png`：同样请求原生 TIFF，解码后用 Go PNG 编码器无损保存；不经过 JPEG；未开启 AI 时不改变像素尺寸、不裁切或缩放。程序没有另外写入 PNG 的 DPI 元数据。
-- 不指定 `-o` 时，仍保存为 JPEG；JPEG 和 PDF 继续请求 `jfif`，PDF 直接嵌入原始 JPEG。
-- `--manual -o scans/document.tiff` 或 `--manual -o scans/document.png` 分别生成 `document-001.tiff` / `.png` 等文件；不合并为多页 TIFF。`--single-page` 仍只用于 PDF。
-- 彩色和灰度均已通过模拟设备测试；覆盖原生 TIFF 字节不变、PNG 逐像素一致、大小写扩展名、连续扫描、损坏/超限图像拒绝、文件冲突和失败清理。实机已验证 A4 彩色 TIFF/PNG，以及 full 灰度 TIFF；其他组合和新格式的连续换页仍待实测，见 [联机记录](TIFF-PNG-VERIFICATION.md)。
-
-## 手动连续扫描
-
-```bash
-./bin/goscanner-ai scan --manual --host 192.168.1.8 --mode gray -o ~/Desktop/document.jpg
+```text
+~/.config/goscanner/config.json
 ```
 
-1. 在平板上放好第一页，运行命令。程序立即扫描。
-2. 完整保存为 `document-001.jpg` 后，程序提示换页并等待按键。
-3. 更换扫描页，按任意键继续，无需回车。下一页保存为 `document-002.jpg`，序号可超过三位。方向键也可继续。
-4. 扫描完成后，在等待提示处单独按 `Esc`。程序显示已保存页数，并以退出码 0 结束。
+优先级为：**显式命令行参数 > 配置文件 > 内置默认值**。配置文件可省略任意字段，缺少的字段使用内置默认值。
 
-手动模式需要可访问 `/dev/tty` 的交互终端，不能在没有控制终端的后台任务中启动。`Ctrl+C` 仍表示取消，退出码为 130。程序在等待期间临时关闭逐行输入和按键回显，退出等待时恢复终端设置。扫描期间的输入会在下次等待前丢弃，不能提前排队扫描；`Esc` 仅在等待换页时用于正常结束。为区分方向键序列，单独 `Esc` 的识别可能延迟约 0.1 秒。
+首次从发现列表确认设备后，程序会自动创建或更新配置中的 `device`，保留其他设置。普通命令行覆盖不会写回配置。修改前应保留已有设备地址，不要直接用示例覆盖自动登记的配置。
 
-`--timeout` 分别限制发现和每页扫描，不限制换页时间。每页都重新检查设备能力与状态。整个会话持有扫描器锁，避免本工具的其他进程在换页时插入任务。任何一页失败都会结束会话，不自动重试；之前完整保存的页面不删除。
+### 完整示例
 
-`-o document.jpg` 是文件名基准，不生成无序号的 `document.jpg`。如果某个编号文件已存在，程序拒绝覆盖并停止，不跳过编号；重新扫描时请使用新的文件名基准。默认基准仍包含时间戳。
+以下示例将默认输出改为 `~/Documents/Scans` 下的 PDF；`192.168.1.8` 是示例 IP，请替换为实际设备地址。
 
-新增模式已通过本机 macOS 伪终端按键测试和环回模拟扫描测试；尚未进行真实扫描仪连续换页验证。
-
-## 保存为 PDF
-
-用 `-o` 指定 `.pdf` 扩展名，或将配置中的 `output.format` 设为 `pdf`，即可选择 PDF。两者均未指定时仍默认保存 JPEG。
-
-```bash
-# 单次扫描：保存一页 PDF。
-./bin/goscanner-ai scan -o scans/page.pdf
-
-# 连续扫描：按 Esc 结束后，按扫描顺序合并为一个 document.pdf。
-./bin/goscanner-ai scan --manual -o scans/document.pdf
-
-# 单页模式：每页立即保存为独立 PDF，文件名为 page-001.pdf、page-002.pdf……
-./bin/goscanner-ai scan --manual --single-page -o scans/page.pdf
+```json
+{
+  "device": {
+    "host": "192.168.1.8",
+    "port": 8018,
+    "path": "/wsd/scan"
+  },
+  "scan": {
+    "dpi": 150,
+    "mode": "color",
+    "area": "a4",
+    "timeout": "30s"
+  },
+  "output": {
+    "directory": "~/Documents/Scans",
+    "format": "pdf"
+  },
+  "processing": {
+    "deskew": false,
+    "autocrop": false
+  }
+}
 ```
 
-- `--single-page` 仅用于 `.pdf` 输出；不启用 `--manual` 时，仍只扫描一次，使用指定的原文件名。
-- 合并 PDF 在结束时发布，不生成带序号的 PDF。Ctrl+C、换页等待失败或后续页扫描失败时，也会保存已经完成的页面；失败退出码不变。第一页未完成时不生成空 PDF。
-- PDF 直接嵌入扫描器返回的 JPEG，不重复压缩。每页纸张尺寸按实际像素尺寸和 `--dpi` 计算，支持彩色和灰度；不包含 OCR 文本层。
-- 合并前，完整 JPEG 保存在输出目录内的私有 `.goscanner-pdf-*` 暂存目录。PDF 保存成功后清理这些 JPEG；保存失败时保留并报告恢复路径。
-- 已有 PDF 不会被覆盖。文件名在扫描期间被其他程序占用时，保留完整 `.pdf.part` 和原始 JPEG，不覆盖新出现的文件。
-- 强制终止、进程崩溃或断电不会执行合并与清理，可能留下暂存图像；不能保证尚未完成的页面可恢复。
+### 配置项
 
-PDF 已通过模拟扫描测试、文档结构检查，并在本机使用 `qpdf`、`pdfinfo` 和 `pdftoppm` 检查和渲染。用户已反馈 PDF 功能实测通过；具体测试模式和异常场景未单独记录。
+| 配置项 | 内置默认值 | 作用 |
+| --- | --- | --- |
+| `device.host` | `""` | 设备 IP；空值表示使用时发现并要求选择 |
+| `device.port` | `8018` | 默认扫描服务端口 |
+| `device.path` | `"/wsd/scan"` | 默认扫描服务路径 |
+| `scan.dpi` | `150` | 默认扫描分辨率 |
+| `scan.mode` | `"color"` | `"color"` 或 `"gray"` |
+| `scan.area` | `"a4"` | `"a4"`、`"full"` 或毫米区域字符串，例如 `"10,10,50,50"` |
+| `scan.timeout` | `"30s"` | 仅作为 `scan` 的默认超时；`discover` 和 `info` 用命令行 `--timeout` 调整 |
+| `output.directory` | `"."` | 默认输出目录；自动创建不存在的目录 |
+| `output.format` | `"jpg"` | `"jpg"`、`"tiff"`、`"png"` 或 `"pdf"` |
+| `processing.deskew` | `false` | 默认是否纠偏 |
+| `processing.autocrop` | `false` | 默认是否裁切 |
 
-## 局域网自动发现
+- `.` 和其他相对路径相对于**运行命令时的工作目录**，不是配置文件目录或程序目录。
+- 支持 `~`、`~/...`；不支持 `~用户名`、`$HOME` 或 `${HOME}` 展开。输出目录不能为空。
+- JSON 不支持注释、尾随逗号或未知字段。`config.example.json` 只是[配置示例](config.example.json)，不会自动加载。
+- `--manual`、`--single-page` 和 `--endpoint` 不是配置项。
 
-`discover` 使用 WS-Discovery 2005，通过活动、支持多播、非环回、非点对点接口上的 IPv4 地址，向 `239.255.255.250:3702` 发送通用与扫描器专用 Probe。通用和扫描器专用 Probe 间隔约 0.5 秒，各最多发送 3 次，监听窗口为 4 秒，然后只读获取设备元数据。该有限重发只用于只读发现，不用于扫描任务。每个元数据请求最多 2 秒，同时最多 4 个请求。不是遍历网段或扫描端口。
+临时覆盖默认设置：
 
-- 只处理与当前 Probe 的 MessageID 关联的回复。
-- 按实际 QName 命名空间识别 `ScanDeviceType`，再从元数据验证 `ScannerServiceType`，不会把只有打印服务的设备当成扫描仪。
-- 读取扫描服务真实地址，不假定端口 8018。结果按扫描端点去重和排序，同一设备若确有多个不同端点，可能显示多项；此时要求显式选择。
-- 元数据地址与扫描地址都必须是响应源 IP 上的无凭据 HTTP 地址。不会访问设备顺带发布的其他 IP、外部 URL 或 DNS 名称。
-- 有接口或元数据失败时，`discover` 在 stderr 输出警告，stdout 仍输出成功发现的 JSON 数组。info/scan 同样显示警告；如仍有可用设备，由用户明确选择，不自动采用第一台。
-- 发现成功仅表示设备发布了 WSD 扫描服务；`info`/`scan` 仍要读取平板能力，扫描前还要验证请求的格式、色彩、分辨率与区域。
-- 不支持 IPv6 多播发现、WS-Discovery 2009、eSCL-only、HTTPS-only、仅发布主机名的发现地址、仅提供 URN/引用参数而无绝对 HTTP 扫描端点的服务、跨子网发现或仅靠 USB 的设备。
-- 设备休眠、Wi-Fi 客户端隔离、VPN、防火墙或系统局域网权限可能影响发现。可先唤醒设备，或用显式 `--host` / `--endpoint`。没有后台常驻服务；从列表确认选择的设备会登记到用户配置。
+```bash
+# 本次改为 JPEG；同时覆盖默认输出目录和格式。
+goscanner scan -o ~/Desktop/once.jpg
 
-此前版本已在本机 `en0` 发现 HP 1188w，并通过不带地址参数的 `info` 完成自动选择和能力读取。当前交互选择与登记流程已用模拟设备和伪终端测试，尚未做新的实机验证。初版复核中曾有一次间歇性漏发现；加入有限重发后，连续五组 `discover` + 自动 `info` 均成功，但不能保证所有网络环境都不漏设备。本轮发现验证不创建扫描任务。发现验证记录见 [DISCOVERY-VERIFICATION.md](DISCOVERY-VERIFICATION.md)。
+# 即使配置启用了 AI，本次也不进行图像处理。
+goscanner scan --deskew=false --autocrop=false
+```
 
-## 已完成的实机验证
+设备迁移、旧配置升级，以及高级环境变量 `GOSCANNER_MODEL_PATH`、`GOSCANNER_ONNXRUNTIME_PATH` 的说明，见[配置与首次使用](docs/configuration.md)。npm 用户通常无需设置这两个环境变量。
 
-打印机：HP Laser MFP 1188w，WSD 扫描地址 `http://192.168.1.8:8018/wsd/scan`。
+## 设备兼容性
 
-| 项目 | 结果 |
+**当前支持范围：** 局域网内提供 WSD 扫描服务、使用可访问的 HTTP/IP 扫描端点、支持当前扫描参数与源格式的平板扫描设备。
+
+**当前不支持：** 自动进纸器（ADF）、原生黑白扫描、OCR、图形界面、仅支持 eSCL 的设备、仅通过 USB 连接的设备。发现功能不支持 IPv6、跨子网发现、WS-Discovery 2009，或仅提供 HTTPS、主机名、URN 而没有可用 HTTP/IP 扫描端点的服务。npm 包暂不支持 Intel Mac、Linux 或 Windows。
+
+| 验证对象 | 已知情况 |
 | --- | --- |
-| 能力与状态查询 | 成功，返回设备分辨率、原生格式、色彩、平板范围 |
-| 彩色 A4、300 DPI | 成功；2480 × 3512 像素，RGB JPEG |
-| 灰度 150 DPI、偏移区域 50 × 50 mm | 成功；295 × 296 像素，Gray JPEG |
-| 下载阶段按 Ctrl+C | 退出码 130，取消流程无报错，未留下最终图像或暂存图像，设备恢复 Idle |
-| 指定已存在的成功图像作为输出 | 拒绝，原文件哈希未变，没有创建新扫描任务 |
-| 原生黑白 75 DPI + JPEG | 失败；已取消任务，本阶段不开放该模式 |
+| HP Laser MFP 1188w | 已验证 WSD 发现、能力读取，以及多种彩色、灰度、JPEG、TIFF、PNG 扫描组合；不代表任意参数组合均可用 |
+| PDF | 已通过本机结构与渲染检查，并收到用户实测通过反馈；不同模式和异常场景未全部进行实机验证 |
+| 其他兼容 WSD 的设备 | 可以尝试，但尚无实机验证保证；可能需要适配设备差异 |
 
-请求尺寸与返回像素可能因固件对齐而略有差异。程序保存设备返回的图像，不擅自裁切、缩放。程序会完整解码验证 JPEG 或 TIFF；此前 JPEG 的独立 macOS ImageIO 解码检查也已通过。没有判断纸张内容、文字清晰度或色彩准确性。
+手动连续扫描、当前交互选择与登记流程已通过模拟设备和终端测试，尚未完成对应的实机流程验证。测试与实机结论分开记录，详见 [WSD 扫描验证](VERIFICATION.md)、[发现验证](DISCOVERY-VERIFICATION.md)、[TIFF/PNG 验证](TIFF-PNG-VERIFICATION.md)和[图像处理验证](PREPROCESSING-VERIFICATION.md)。
 
-实测期间首次 Go 能力查询曾返回 HTTP 400。随后原请求成功，多种请求格式对照没有复现该错误，因此未给它编造原因或添加未经证实的修复。程序不会自动重试创建任务。
+## 常见问题与文件安全
 
-详细结果见 [VERIFICATION.md](VERIFICATION.md)。原始日志和扫描图像在本地 `verification/` 中，该目录已被 Git 忽略。
+| 问题 | 处理方式 |
+| --- | --- |
+| 找不到设备 | 唤醒设备，确认 Mac 与设备在同一直连局域网，且设备提供 WSD 扫描服务；检查 Wi-Fi 客户端隔离、VPN、防火墙和 macOS 本地网络权限 |
+| 发现失败，但知道设备地址 | 用 `info --host IP` 或 `info --endpoint URL` 查询；手动指定地址不能绕过网络或系统权限限制 |
+| 更换设备后仍访问旧设备 | 编辑配置中的 `device.host`；设为空字符串后，下次 `info` 或 `scan` 会重新发现并要求选择 |
+| 参数或格式不受支持 | 用 `info` 查看设备能力；降低分辨率、调整区域或改用设备支持的格式，不要把能力列表视为全部组合均可用 |
+| 扫描超时 | 查看设备状态，必要时增加 `--timeout`；不要反复启动扫描。若创建任务时连接中断，程序可能未获得任务编号，无法可靠取消未知任务 |
+| 输出文件已存在 | 使用新文件名或默认时间戳文件名；程序拒绝覆盖，连续扫描也不会自动跳过已占用编号 |
+| 图像发布或 PDF 保存失败 | 按错误信息查找保留的暂存图像、`.pdf.part` 或原始 JPEG；先备份再处理 |
+| 裁切丢失内容或纠偏不正确 | 检查额外保留的原图；用 `--deskew=false --autocrop=false` 关闭处理后重新扫描 |
 
-## 取消、超时和文件安全
+文件先在输出目录暂存，完整校验后再发布，不将未完成图像作为最终文件。输出文件系统必须支持硬链接。输出图像、PDF 和原图权限为 `0600`，新建输出目录与图像暂存目录权限为 `0700`。
 
-- Ctrl+C 或 SIGTERM 会取消当前操作。已获得任务编号时，使用独立的、最多 10 秒的 context 取消**本客户端的任务**。
-- 若创建请求断线、任务编号尚未返回，不能可靠取消未知任务。先查询状态，不要立即反复扫描。
-- 不自动重试，避免重复创建任务。
-- 同一用户下，本机多个进程通过端点锁避免同时扫描同一地址。锁位于 macOS 用户缓存目录 `~/Library/Caches/goscanner/`，不包含图像或任务令牌。锁只约束本工具，不能阻止 Windows 或其他客户端同时扫描。
-- 图像先写入输出目录中的私有 `.goscanner-*.<扩展名>.part` 文件，完整解码、写盘并关闭后，通过硬链接原子发布最终路径。创建目标路径时不会覆盖已有文件，即使该文件是扫描期间才被其他进程创建的。
-- 发生正常错误或中断时清理未完成暂存文件；强制杀死进程或断电可能留下 `.part`，但不会发布不完整图像。
-- 若最终文件发布失败，已经完成的图像会保留在错误信息指出的暂存路径，便于恢复。输出文件系统须支持硬链接；当前项目所在文件系统已验证支持。
-- 下载响应最多 64 MiB，SOAP XML 最多 1 MiB，源 JPEG/TIFF 最多 4000 万像素。超时不是对本地图像解码/编码、PDF 合并和文件系统调用的硬实时抢占保证。
-- PDF 同样先写盘、关闭，再用硬链接独占发布。PDF 和图像文件权限为 `0600`，新建输出目录和图像暂存目录权限为 `0700`。合并期间需要容纳原始 JPEG 和完整 PDF 的磁盘空间。
+扫描任务不会自动重试，避免重复扫描。`Ctrl+C` 或 SIGTERM 会尝试取消本客户端已知编号的任务；强制终止或断电可能留下 `.part` 文件或 PDF 暂存目录。
 
-## 固件兼容性与网络边界
+## 隐私与安全
 
-这台 HP 固件会在 MIME 分隔符前漏写 CRLF。程序只对已观察到的 `_DPWS_v1.0_MimeBoundary_WSD` 边界做修复，然后用标准库解析 MIME，按 `start` 和 XOP `cid:` 找到图像，不假定附件顺序。测试覆盖修复前后图像字节一致及重复修复不改变数据。
+- 图像处理和 AI 推理在本机完成，不上传图像，也不使用云端推理服务。
+- WSD 使用明文 HTTP。只在可信局域网使用，不要将扫描服务端口暴露到互联网。
+- 若输出目录由 iCloud、Google Drive 等服务同步，文件仍可能被这些服务上传。敏感文档应保存到非同步目录。
 
-HP 1188w 的 `RetrieveImage` 下载文档名必须保持 `IMAGE000.JPG`，即使请求的源格式为 TIFF。这个名字不是输出格式：把它改为 `IMAGE000.TIF` 会得到 `ClientErrorNoImagesAvailable`，而保持 `.JPG` 时仍返回有效的未压缩 TIFF。客户端据此固定下载文档名，不改变票据中的 `Format`，也不降级为 JPEG。
+## 获取帮助
 
-HTTP 客户端不使用代理环境变量，不跟随重定向，不访问 XOP 中的外部 URL。任务令牌仅在内存中用于下载，不写入日志。
+其他品牌或型号遇到问题时，请通过 [GitHub Issues](https://github.com/johnbitcn/GoScanner/issues) 反馈。请提供设备型号、macOS 版本、npm 包版本、执行的命令和错误信息；可以附上脱敏后的 `discover`、`info` 输出。不要提交任务令牌、敏感文档或未脱敏的网络信息。
 
-WSD 使用明文 HTTP，只在可信局域网运行，不要把端口暴露到互联网。当前项目位于 Google Drive 同步路径内，扫描文件可能自动上传；敏感文档请用 `-o` 指定非同步目录。
-
-## OpenCV 构建依赖
-
-本节用于开发者源码构建。npm 用户无需安装这些工具或运行库；完整 npm 包的构建脚本会另外设置 macOS 14 部署目标并重写动态库路径，不能将本机开发库直接复制为分发包。
-
-需要 C/C++ 编译工具、CMake、`pkg-config`，以及与 GoCV 匹配的 OpenCV。本分支固定 GoCV `v0.43.0`，使用 OpenCV `4.13.0` 验证。不要直接安装当前 Homebrew 默认的 OpenCV 5；`opencv@4` 也不保证仍为匹配的小版本。
-
-下面是 macOS 本地隔离安装示例，不写入系统库目录，不升级已有 Homebrew 依赖。先安装 Xcode Command Line Tools，并确保 `cmake` 和 `pkg-config` 可用。首次克隆源码、下载 Go 模块需要网络；准备完成后，构建和合成图像测试不需要扫描仪。
-
-```bash
-prefix="$HOME/.local/opt/goscanner/opencv-4.13.0"
-# 如目标已存在，先核对版本，不覆盖其他安装。
-git clone --depth 1 --branch 4.13.0 https://github.com/opencv/opencv.git /tmp/goscanner-opencv-source
-cmake -S /tmp/goscanner-opencv-source -B /tmp/goscanner-opencv-build \
-  -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" \
-  -DCMAKE_INSTALL_NAME_DIR="$prefix/lib" -DCMAKE_INSTALL_RPATH="$prefix/lib" \
-  -DBUILD_LIST=core,imgproc,imgcodecs,calib3d,dnn,features2d,highgui,objdetect,photo,video,videoio \
-  -DOPENCV_GENERATE_PKGCONFIG=ON -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF \
-  -DBUILD_EXAMPLES=OFF -DBUILD_opencv_apps=OFF -DBUILD_JAVA=OFF \
-  -DBUILD_opencv_python2=OFF -DBUILD_opencv_python3=OFF \
-  -DWITH_FFMPEG=OFF -DWITH_GSTREAMER=OFF -DWITH_QT=OFF -DWITH_VTK=OFF \
-  -DWITH_OPENEXR=OFF -DWITH_AVIF=OFF -DWITH_TIFF=OFF -DWITH_WEBP=OFF \
-  -DWITH_JASPER=OFF -DWITH_OPENJPEG=OFF -DWITH_PROTOBUF=OFF \
-  -DWITH_IPP=OFF -DWITH_OPENCL=OFF -DWITH_LAPACK=OFF -DWITH_EIGEN=OFF \
-  -DWITH_KLEIDICV=OFF -DWITH_ADE=OFF
-cmake --build /tmp/goscanner-opencv-build --parallel 6
-cmake --install /tmp/goscanner-opencv-build
-export PKG_CONFIG_PATH="$prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-pkg-config --modversion opencv4  # 应为 4.13.0
-CGO_ENABLED=1 go build -trimpath -o bin/goscanner-ai .
-```
-
-这是当前图像处理功能使用的精简 OpenCV 构建，不包含贡献模块、FFmpeg 或 Protobuf 模型导入支持。后续功能需要这些能力时再调整依赖。上述安装名设置用于让 macOS 正确找到动态库，不依赖临时的 `DYLD_LIBRARY_PATH`。若此前已链接另一处 OpenCV，切换安装位置后用 `go test -a ./...` / `go build -a .` 强制重新编译，避免 Go 缓存保留旧动态库引用。新终端执行构建或测试前，需要重新设置 `PKG_CONFIG_PATH`；运行程序仍须保留安装目录，不能只复制可执行文件到另一台机器。
-
-## 开发验证
-
-```bash
-go test ./...
-go test -race -cover ./...
-go vet ./...
-
-CGO_ENABLED=1 go build -trimpath -o bin/goscanner-ai .
-```
-
-默认测试使用环回地址上的模拟 UDP/HTTP 服务和能力样本；macOS 下还使用本机伪终端，不向局域网发送多播、不访问真实打印机、不启动扫描。`-race` 属于开发验证，需相应编译工具；构建需要 CGO 和 OpenCV 开发库。
-
-新增测试覆盖连续两页、每页超时与换页等待、文件冲突、后续页失败保留前页，以及 macOS 下的按键序列、终端恢复、CLI 的 Esc/Ctrl+C 退出码和无控制终端拒绝启动。Linux 按键行为尚未实测。
-
-新增 `golang.org/x/image v0.47.0` 用于 TIFF 编解码；该安全版本要求 Go 1.26.0，因此同步提高源码构建要求。锁实现针对 Darwin/Linux；Linux 未做实机扫描验证，Windows 构建未实现。最低 Go 1.26 版本尚未单独测试。
-
-源码按功能放在同一 `main` 包中，没有额外的服务层或插件框架。`config.go` 使用标准库读取用户 JSON 配置；`config.example.json` 仅为示例，不会自动加载。`testdata/scanner-elements.xml` 来自此前成功的只读能力查询，不含扫描任务令牌。
+源码与分发资料：[源码构建与 AI 运行环境](docs/build.md) · [npm 安装与发布](docs/npm.md)。普通用户无需执行这些构建步骤。
 
 ## 许可证
 
-本项目原创代码采用 [Apache License 2.0](LICENSE)。允许使用、修改、再分发和商用，具体条件以许可证全文为准。
+本项目原创代码采用 [Apache License 2.0](LICENSE)，允许使用、修改、再分发和商用，具体条件以许可证全文为准。
 
-第三方库和 AI 模型保留各自的许可证，不因本项目的许可选择而改变。npm 包根目录包含本项目的 `LICENSE`；第三方许可证、版权及相关声明保留在 `runtime/licenses/`，来源与分发说明见 [npm 安装与发布](docs/npm.md#固定构建输入与许可)。
+第三方库和 AI 模型保留各自许可证。npm 包内的第三方许可证、版权及相关声明位于 `runtime/licenses/`，来源与分发说明见 [npm 安装与发布](docs/npm.md#固定构建输入与许可)。

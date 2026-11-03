@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="360" viewBox="0 0 600 360" role="img" aria-labelledby="title desc">
+<title id="title">智能裁切</title>
+<desc id="desc">在平板图像中定位纸张四角，右侧裁切结果保留一圈安全边距，不旋转纸张。</desc>
+<defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="#dfe6ef" stroke-width=".7"/></pattern><g id="paper"><rect width="88" height="118" rx="3" fill="#fff" stroke="#b8c5d6" stroke-width="1.5"/><rect x="13" y="16" width="31" height="5" rx="2" fill="#62748b"/><path d="M13 34h61M13 45h61M13 56h49M13 78h61M13 89h55M13 100h39" fill="none" stroke="#c3cddd" stroke-width="3"/></g></defs>
+<style>
+text{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;fill:#25364d}
+.label{font-size:12px;font-weight:600;letter-spacing:1px;fill:#61758e}
+.motion{animation-timing-function:ease-in-out;animation-iteration-count:infinite}
+.bounds{animation-name:detect;animation-duration:4s}@keyframes detect{0%,100%{opacity:.45}50%{opacity:1}}
+@media(prefers-reduced-motion:reduce){.motion{animation:none!important}}
+</style>
+<rect x="1" y="1" width="598" height="358" rx="16" fill="#f7f9fc" stroke="#dce4ee"/>
+<rect x="16" y="70" width="568" height="236" rx="10" fill="url(#grid)" opacity=".7"/>
+<text x="24" y="32" font-size="20" font-weight="700">智能裁切</text>
+<text x="24" y="54" font-size="12" fill="#61758e">LOCAL AI / CROP WITH MARGIN</text>
+<g transform="translate(170 91)">
+ <ellipse cx="0" cy="208" rx="157.88" ry="18" fill="#d9e2ee" opacity=".65"/>
+ <path d="M-155.88 90L0 180V198L-155.88 108Z" fill="#a6b4c8"/>
+ <path d="M0 180L155.88 90V108L0 198Z" fill="#7d8fa9"/>
+ <path d="M0 0L155.88 90L0 180L-155.88 90Z" fill="#e7edf5" stroke="#b7c4d6"/>
+ <g transform="matrix(.866 .5 -.866 .5 0 0)">
+ <rect x="12" y="12" width="156" height="156" rx="4" fill="#cbd8e8" stroke="#a7b9cf"/>
+ <rect x="18" y="18" width="144" height="144" rx="2" fill="#e4f2f3"/>
+ <use href="#paper" x="46" y="31"/><g class="motion bounds" fill="none" stroke="#0d9488" stroke-width="2.5"><path d="M40 44V25h19M121 25h19v19M140 136v19h-19M59 155H40v-19"/><path d="M40 25H140V155H40Z" stroke-dasharray="5 5" stroke-width="1"/></g>
+ </g>
+ <circle cx="112.2336" cy="110" r="3.5" fill="#0d9488"/>
+ </g><g transform="translate(458 124)"><path d="M-9-9H97V127H-9Z" fill="#d1f3eb" stroke="#0d9488" stroke-dasharray="4 3"/><use href="#paper"/><path d="M-9-9h12M-9-9V3M97-9H85M97-9V3M-9 127H3M-9 127V115M97 127H85M97 127V115" fill="none" stroke="#0d9488" stroke-width="2"/></g><text x="502" y="284" text-anchor="middle" class="label">保留安全边距</text><path d="M361 190h59m-7-7 7 7-7 7" fill="none" stroke="#0d9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M24 312H576" stroke="#dce4ee"/>
+<circle cx="30" cy="336" r="4" fill="#0d9488"/>
+<text x="43" y="340" font-size="12">只裁切，不旋转 · 请核对原图，避免内容丢失</text>
+</svg>

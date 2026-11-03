@@ -15,7 +15,7 @@ macOS 和 Linux 使用相同位置；不使用 macOS 的 `Application Support` �
 - 扫描仪已开机，支持 WSD 扫描。当前仓库未集成 USB 扫描，不支持 eSCL-only 设备。
 - 电脑能够访问扫描仪所在的可信局域网。自动发现仅支持直连 IPv4 局域网；VPN、客户端隔离、防火墙和本地网络权限可能影响连接。
 - 若 macOS 提示本地网络访问，请按需允许实际运行程序的应用访问。连接失败不一定是扫描仪离线。
-- npm 包仅支持 macOS 14+、Apple Silicon，并自带 OpenCV 动态库。源码构建则需要自行准备 OpenCV；即使关闭 AI，也不能省略该构建链接的 OpenCV。构建与分发方式见 [README](../README.md#npm-安装)。
+- npm 包仅支持 macOS 14+、Apple Silicon，并自带 OpenCV 动态库。源码构建则需要自行准备 OpenCV；即使关闭 AI，也不能省略该构建链接的 OpenCV。源码构建见 [源码构建与 AI 运行环境](build.md)，npm 分发方式见 [npm 安装与发布](npm.md)。
 - 保存位置可写，有足够的磁盘空间，且文件系统支持硬链接。新建输出目录使用 `0700`，最终文件使用 `0600`；程序不更改已有目录的权限，不覆盖已有文件。
 - npm 包已包含 AI 模型与 ONNX Runtime，不需要手动准备。源码构建需在启用 AI 前准备它们。程序不会自动下载模型或上传扫描图像。
 
@@ -167,7 +167,7 @@ GOSCANNER_MODEL_PATH
 GOSCANNER_ONNXRUNTIME_PATH
 ```
 
-它们分别覆盖模型文件与 ONNX Runtime 动态库的完整路径。npm 命令默认使用包内文件，非空环境变量仍可覆盖。源码默认路径、版本、模型 SHA256 和处理限制见 [AI 预处理准备](../README.md#ai-预处理准备)。版本和模型校验不是普通用户可关闭的配置项。
+它们分别覆盖模型文件与 ONNX Runtime 动态库的完整路径。npm 命令默认使用包内文件，非空环境变量仍可覆盖。源码默认路径、版本、模型 SHA256 和处理限制见 [AI 预处理准备](build.md#ai-预处理准备)。版本和模型校验不是普通用户可关闭的配置项。
 
 ## 4. 优先级与临时覆盖
 
