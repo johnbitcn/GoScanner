@@ -1,0 +1,31 @@
+{
+  "minimumMacOS": "14.0",
+  "opencv": {
+    "version": "4.13.0",
+    "commit": "fe38fc608f6acb8b68953438a62305d8318f4fcd",
+    "filename": "opencv-4.13.0.tar.gz",
+    "url": "https://codeload.github.com/opencv/opencv/tar.gz/fe38fc608f6acb8b68953438a62305d8318f4fcd",
+    "sha256": "6a7508554941c1a698c243b2212b2985ce59a65a3e0348d53c2158607d801e61"
+  },
+  "onnxruntime": {
+    "version": "1.31.1",
+    "filename": "onnxruntime-1.31.1.whl",
+    "url": "https://files.pythonhosted.org/packages/fa/44/e9e04a60f726d16ba3abe30ab267e1569e061f7f6f0e175ee103661e1780/onnxruntime-1.31.1-cp311-cp311-macosx_14_0_arm64.whl",
+    "sha256": "60b6b69bfe580eab576cacc5d132a0e9cf2a37fcfd18d46dd191042b1d1ed0d7",
+    "library": "libonnxruntime.1.31.1.dylib",
+    "librarySha256": "f8b06155feece624e55e49124340eea279da812529ae6fbc46a9f2be9c9cad2e"
+  },
+  "model": {
+    "filename": "fastvit_sa24_h_e_bifpn_256_fp32.onnx",
+    "url": "https://github.com/DocsaidLab/DocAligner/releases/download/1.1.1/fastvit_sa24_h_e_bifpn_256_fp32.onnx",
+    "sha256": "7f9f5a8935b2eb22b3ee0245d34996063f54562df390d34714af2d76928695bc",
+    "license": "Apache-2.0",
+    "licenseEvidence": "https://docsaid.org/en/models/docaligner",
+    "releaseId": "docaligner-1.1.1-fastvit-sa24-7f9f5a89"
+  },
+  "modelLicense": {
+    "filename": "DocAligner-LICENSE",
+    "url": "https://raw.githubusercontent.com/DocsaidLab/DocAligner/3275b0f07f8e99d8c01cb0774dea2549be1416b6/LICENSE",
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+  }
+}
