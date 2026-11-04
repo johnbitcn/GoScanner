@@ -41,6 +41,7 @@ type scanResult struct {
 	processing           processingInfo
 	warning              string
 	originalPath         string
+	retainedPath         string
 }
 
 func parseArea(text string) (region, error) {
@@ -275,6 +276,7 @@ func (c *client) scan(ctx context.Context, opts options, output string) (result 
 	// Link publishes the complete file atomically and refuses existing paths.
 	if err = os.Link(file.Name(), output); err != nil {
 		keepStaging = true
+		result.retainedPath = file.Name()
 		return result, fmt.Errorf("发布文件失败；完整图像保留在 %s：%w", file.Name(), err)
 	}
 	success = true

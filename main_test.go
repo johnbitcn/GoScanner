@@ -55,6 +55,30 @@ func TestCLIValidation(t *testing.T) {
 	}
 }
 
+func TestManualModeDefaults(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, tc := range []struct {
+		manualDefault bool
+		flags         []string
+		want          bool
+	}{
+		{manualDefault: true, want: true},
+		{manualDefault: true, flags: []string{"--manual=false"}},
+		{manualDefault: true, flags: []string{"--manual"}, want: true},
+		{},
+		{flags: []string{"--manual"}, want: true},
+		{flags: []string{"--manual=false"}},
+	} {
+		r, _, failure, code := parseRequest(append([]string{"scan"}, tc.flags...), tc.manualDefault)
+		if code != 0 || failure != nil || r.manual != tc.want {
+			t.Fatalf("default=%t flags=%v manual=%t code=%d failure=%+v", tc.manualDefault, tc.flags, r.manual, code, failure)
+		}
+		if filepath.Ext(r.output) != ".jpg" {
+			t.Fatal("manual default must not change configured output format", r.output)
+		}
+	}
+}
+
 func TestCLIExplicitEndpoint(t *testing.T) {
 	for _, command := range []string{"info", "scan", "scan-full", "scan-a4", "scan-tif", "scan-tiff", "scan-png", "scan-pdf", "scan-pdf-single"} {
 		t.Run(command, func(t *testing.T) {

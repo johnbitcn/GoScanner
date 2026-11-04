@@ -18,9 +18,11 @@ const (
 )
 
 type processingInfo struct {
-	Changed, Detected, AngleReliable bool
-	Angle                            float64
-	Warnings                         []string
+	Changed       bool     `json:"changed"`
+	Detected      bool     `json:"detected"`
+	AngleReliable bool     `json:"angle_reliable"`
+	Angle         float64  `json:"angle"`
+	Warnings      []string `json:"warnings,omitempty"`
 }
 
 type imageProcessor struct {

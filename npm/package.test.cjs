@@ -21,6 +21,19 @@ test('project declares Apache-2.0 and includes the complete license in its publi
   assert.match(license, /END OF TERMS AND CONDITIONS/);
 });
 
+test('README local documentation and animation links exist and are included in the package', () => {
+  const root = path.resolve(__dirname, '..');
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json')));
+  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+  for (const [, link] of readme.matchAll(/!?\[[^\]]*\]\(([^)\s]+)\)/g)) {
+    if (/^https?:\/\//.test(link) || link.startsWith('#')) continue;
+    const target = path.posix.normalize(link.split('#')[0]);
+    assert(fs.existsSync(path.join(root, target)), `Missing README target: ${target}`);
+    assert(pkg.files.some((entry) => entry.endsWith('/') ? target.startsWith(entry) : entry === target),
+      `README target is not shipped: ${target}`);
+  }
+});
+
 function fixture(t) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'goscanner npm ')));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
