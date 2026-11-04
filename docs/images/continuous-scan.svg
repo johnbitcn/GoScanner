@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="360" viewBox="0 0 600 360" role="img" aria-labelledby="title desc">
+<title id="title">连续扫描</title>
+<desc id="desc">平板上的纸张逐页扫描，右侧文件叠放表示可合并为多页 PDF。</desc>
+<defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="#dfe6ef" stroke-width=".7"/></pattern><g id="paper"><rect width="88" height="118" rx="3" fill="#fff" stroke="#b8c5d6" stroke-width="1.5"/><rect x="13" y="16" width="31" height="5" rx="2" fill="#62748b"/><path d="M13 34h61M13 45h61M13 56h49M13 78h61M13 89h55M13 100h39" fill="none" stroke="#c3cddd" stroke-width="3"/></g></defs>
+<style>
+text{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;fill:#25364d}
+.label{font-size:12px;font-weight:600;letter-spacing:1px;fill:#61758e}
+.motion{animation-timing-function:ease-in-out;animation-iteration-count:infinite}
+.beam{animation-name:scan;animation-duration:4s}.page{animation-name:page;animation-duration:4s}@keyframes scan{0%,100%{transform:translateY(0)}50%{transform:translateY(110px)}}@keyframes page{0%,70%,100%{transform:translateY(0)}85%{transform:translateY(-7px)}}
+@media(prefers-reduced-motion:reduce){.motion{animation:none!important}}
+</style>
+<rect x="1" y="1" width="598" height="358" rx="16" fill="#f7f9fc" stroke="#dce4ee"/>
+<rect x="16" y="70" width="568" height="236" rx="10" fill="url(#grid)" opacity=".7"/>
+<text x="24" y="32" font-size="20" font-weight="700">连续扫描</text>
+<text x="24" y="54" font-size="12" fill="#61758e">MANUAL PAGES / ONE DOCUMENT</text>
+<g transform="translate(234 83)">
+ <ellipse cx="0" cy="208" rx="157.88" ry="18" fill="#d9e2ee" opacity=".65"/>
+ <path d="M-155.88 90L0 180V198L-155.88 108Z" fill="#a6b4c8"/>
+ <path d="M0 180L155.88 90V108L0 198Z" fill="#7d8fa9"/>
+ <path d="M0 0L155.88 90L0 180L-155.88 90Z" fill="#e7edf5" stroke="#b7c4d6"/>
+ <g transform="matrix(.866 .5 -.866 .5 0 0)">
+ <rect x="12" y="12" width="156" height="156" rx="4" fill="#cbd8e8" stroke="#a7b9cf"/>
+ <rect x="18" y="18" width="144" height="144" rx="2" fill="#e4f2f3"/>
+ <use href="#paper" x="46" y="31"/><rect class="motion beam" x="20" y="30" width="140" height="7" rx="3" fill="#14b8a6" opacity=".45"/><path d="M22 33H158" stroke="#0d9488" stroke-width="2"/>
+ </g>
+ <circle cx="112.2336" cy="110" r="3.5" fill="#0d9488"/>
+ </g><path d="M404 200h32m-7-7 7 7-7 7" fill="none" stroke="#0d9488" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<g transform="translate(460 115)">
+<rect x="12" y="12" width="82" height="111" rx="5" fill="#d5dfea" stroke="#aab9cd"/>
+<rect x="6" y="6" width="82" height="111" rx="5" fill="#e8edf4" stroke="#aab9cd"/>
+<g class="motion page"><rect width="82" height="111" rx="5" fill="#fff" stroke="#aab9cd"/><path d="M14 24h48M14 38h48M14 52h40M14 66h48" stroke="#becbdb" stroke-width="3"/><rect x="14" y="82" width="54" height="19" rx="4" fill="#d1f3eb"/><text x="41" y="96" text-anchor="middle" font-size="11" font-weight="700">PDF</text></g>
+</g><text x="503" y="264" text-anchor="middle" class="label">01 · 02 · 03</text>
+<path d="M24 312H576" stroke="#dce4ee"/>
+<circle cx="30" cy="336" r="4" fill="#0d9488"/>
+<text x="43" y="340" font-size="12">按键继续 · Esc 结束 · 按扫描顺序保存</text>
+</svg>

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="360" viewBox="0 0 600 360" role="img" aria-labelledby="title desc">
+<title id="title">多种输出格式</title>
+<desc id="desc">同一台 WSD 扫描仪通过输出扩展名选择 JPG、PNG、TIFF 或 PDF。</desc>
+<defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="#dfe6ef" stroke-width=".7"/></pattern><g id="paper"><rect width="88" height="118" rx="3" fill="#fff" stroke="#b8c5d6" stroke-width="1.5"/><rect x="13" y="16" width="31" height="5" rx="2" fill="#62748b"/><path d="M13 34h61M13 45h61M13 56h49M13 78h61M13 89h55M13 100h39" fill="none" stroke="#c3cddd" stroke-width="3"/></g></defs>
+<style>
+text{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;fill:#25364d}
+.label{font-size:12px;font-weight:600;letter-spacing:1px;fill:#61758e}
+.motion{animation-timing-function:ease-in-out;animation-iteration-count:infinite}
+.format{animation-name:format;animation-duration:5s}@keyframes format{0%,30%,100%{transform:translateY(0)}15%{transform:translateY(-4px)}}
+@media(prefers-reduced-motion:reduce){.motion{animation:none!important}}
+</style>
+<rect x="1" y="1" width="598" height="358" rx="16" fill="#f7f9fc" stroke="#dce4ee"/>
+<rect x="16" y="70" width="568" height="236" rx="10" fill="url(#grid)" opacity=".7"/>
+<text x="24" y="32" font-size="20" font-weight="700">多种输出格式</text>
+<text x="24" y="54" font-size="12" fill="#61758e">ONE SCANNER / FOUR OUTPUT FORMATS</text>
+<g transform="translate(164 115)">
+ <ellipse cx="0" cy="168" rx="123.24" ry="18" fill="#d9e2ee" opacity=".65"/>
+ <path d="M-121.24 70L0 140V158L-121.24 88Z" fill="#a6b4c8"/>
+ <path d="M0 140L121.24 70V88L0 158Z" fill="#7d8fa9"/>
+ <path d="M0 0L121.24 70L0 140L-121.24 70Z" fill="#e7edf5" stroke="#b7c4d6"/>
+ <g transform="matrix(.866 .5 -.866 .5 0 0)">
+ <rect x="12" y="12" width="116" height="116" rx="4" fill="#cbd8e8" stroke="#a7b9cf"/>
+ <rect x="18" y="18" width="104" height="104" rx="2" fill="#e4f2f3"/>
+ <use href="#paper" x="26" y="12"/>
+ </g>
+ <circle cx="87.2928" cy="90" r="3.5" fill="#0d9488"/>
+ </g><path d="M297 201H359M359 134V239M359 134h26M359 239h26" fill="none" stroke="#0d9488" stroke-width="2" stroke-linecap="round"/><text x="329" y="188" text-anchor="middle" class="label">-o</text><g transform="translate(423 97)"><g class="motion format" style="animation-delay:0s"><path d="M-27 0H12L27 15V74H-27Z" fill="#fff" stroke="#b3c1d3"/><path d="M12 0V15H27" fill="#e7edf5" stroke="#b3c1d3"/><path d="M-16 28H16M-16 36H9" stroke="#c5cfdd" stroke-width="2"/><rect x="-29" y="47" width="58" height="23" rx="4" fill="#d1f3eb"/><text y="63" text-anchor="middle" font-size="12" font-weight="700">JPG</text></g></g><g transform="translate(502 97)"><g class="motion format" style="animation-delay:0.45s"><path d="M-27 0H12L27 15V74H-27Z" fill="#fff" stroke="#b3c1d3"/><path d="M12 0V15H27" fill="#e7edf5" stroke="#b3c1d3"/><path d="M-16 28H16M-16 36H9" stroke="#c5cfdd" stroke-width="2"/><rect x="-29" y="47" width="58" height="23" rx="4" fill="#d1f3eb"/><text y="63" text-anchor="middle" font-size="12" font-weight="700">PNG</text></g></g><g transform="translate(423 202)"><g class="motion format" style="animation-delay:0.9s"><path d="M-27 0H12L27 15V74H-27Z" fill="#fff" stroke="#b3c1d3"/><path d="M12 0V15H27" fill="#e7edf5" stroke="#b3c1d3"/><path d="M-16 28H16M-16 36H9" stroke="#c5cfdd" stroke-width="2"/><rect x="-29" y="47" width="58" height="23" rx="4" fill="#d1f3eb"/><text y="63" text-anchor="middle" font-size="12" font-weight="700">TIFF</text></g></g><g transform="translate(502 202)"><g class="motion format" style="animation-delay:1.35s"><path d="M-27 0H12L27 15V74H-27Z" fill="#fff" stroke="#b3c1d3"/><path d="M12 0V15H27" fill="#e7edf5" stroke="#b3c1d3"/><path d="M-16 28H16M-16 36H9" stroke="#c5cfdd" stroke-width="2"/><rect x="-29" y="47" width="58" height="23" rx="4" fill="#d1f3eb"/><text y="63" text-anchor="middle" font-size="12" font-weight="700">PDF</text></g></g>
+<path d="M24 312H576" stroke="#dce4ee"/>
+<circle cx="30" cy="336" r="4" fill="#0d9488"/>
+<text x="43" y="340" font-size="12">按扩展名选择 · TIFF / PNG 需要设备支持</text>
+</svg>

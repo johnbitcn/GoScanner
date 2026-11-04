@@ -50,7 +50,7 @@ func writeConfigForTest(t *testing.T, cfg config) string {
 func TestLoadConfig(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	if c, err := loadConfig(); err != nil || c != defaultConfig() || c.Scan.DPI != 150 || c.Scan.Timeout != "30s" || c.Output.Directory != "." {
+	if c, err := loadConfig(); err != nil || c != defaultConfig() || c.Scan.DPI != 150 || c.Scan.Timeout != "2m0s" || c.Output.Directory != "." {
 		t.Fatalf("missing config: %+v, %v", c, err)
 	}
 	for _, data := range []string{"", "null", "[]", "{", `{"scan":{"dpi":"150"}}`, `{"scan":{"dppi":150}}`, `{"unknown":true}`, `{} {}`, `{} junk`} {
@@ -135,6 +135,10 @@ func TestConfigOutputPath(t *testing.T) {
 		path, err := c.outputPath()
 		if err != nil || filepath.Dir(path) != tc.wantDir || filepath.Ext(path) != "."+tc.format || !strings.HasPrefix(filepath.Base(path), "scan-") {
 			t.Fatalf("output for %+v: %q, %v", tc, path, err)
+		}
+		stamp := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "scan-"), "."+tc.format)
+		if _, err := time.Parse("20060102-150405", stamp); err != nil || len(stamp) != 15 {
+			t.Fatalf("timestamp must use second precision: %q, %v", stamp, err)
 		}
 	}
 	for _, tc := range []struct{ dir, format string }{{"", "jpg"}, {"~other/scans", "jpg"}, {".", "gif"}} {

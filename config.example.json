@@ -8,7 +8,7 @@
     "dpi": 150,
     "mode": "color",
     "area": "a4",
-    "timeout": "30s"
+    "timeout": "2m0s"
   },
   "output": {
     "directory": ".",

@@ -8,7 +8,7 @@
 
 - macOS / Darwin arm64；Go 1.27.3。
 - GoCV `v0.43.0`；OpenCV `4.13.0`，从固定标签源码编译。
-- OpenCV 隔离安装：`~/.local/opt/goscanner/opencv-4.13.0`。当前精简构建范围见 README，不依赖临时源码目录运行。
+- OpenCV 隔离安装：`~/.local/opt/goscanner/opencv-4.13.0`。当前精简构建范围见 [源码构建文档](docs/build.md#opencv-构建依赖)，不依赖临时源码目录运行。
 - 本地验收程序：`bin/goscanner-opencv`。没有覆盖已有的 `bin/goscanner` 或 Intel 版本。
 - 已检查动态库引用，程序指向用户目录中的 OpenCV，`--help` 实际运行成功。未设置 `DYLD_LIBRARY_PATH`。
 
@@ -72,7 +72,7 @@ git diff --check
 
 - 已对齐 `main` 的 TIFF/PNG 和完整平板扫描源码增量（`8a5f74b`、`7b99eec`），保留 JPEG、TIFF、PNG、PDF、连续扫描及文件安全行为。此处描述源码整合，不表示已经创建合并提交。
 - Go 1.27.3；源码最低 Go 1.26。GoCV `v0.43.0`、OpenCV `4.13.0`、`onnxruntime_go v1.38.0`（C API 31）、ONNX Runtime `1.31.1`。
-- 固定 DocAligner `fastvit_sa24` 热图模型及 README 中的 SHA256。模型和原生库位于用户目录；程序不依赖 Python 服务，不下载模型或上传图像。
+- 固定 DocAligner `fastvit_sa24` 热图模型及[源码构建文档](docs/build.md#ai-预处理准备)中的 SHA256。模型和原生库位于用户目录；程序不依赖 Python 服务，不下载模型或上传图像。
 - 每批只创建一个正式 ORT session。固定模型 hash 确定图结构，在同一会话用既定名称、类型、尺寸的张量暖机，验证可实际运行及输出有限性，随后每页推理一次。没有为查询元数据再创建第二个 session。
 - 构建为 `bin/goscanner-ai`，没有覆盖历史 `bin/goscanner` / `bin/goscanner-opencv`。
 

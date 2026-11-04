@@ -29,8 +29,15 @@
     "npm/cli.cjs",
     "npm/check-runtime.cjs",
     "npm/dependencies.json",
+    "ani/",
     "docs/configuration.md",
+    "docs/interfaces.md",
+    "docs/build.md",
     "docs/npm.md",
+    "VERIFICATION.md",
+    "DISCOVERY-VERIFICATION.md",
+    "TIFF-PNG-VERIFICATION.md",
+    "PREPROCESSING-VERIFICATION.md",
     "config.example.json"
   ],
   "scripts": {

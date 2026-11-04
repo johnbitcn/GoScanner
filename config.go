@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const defaultScanTimeout = 30 * time.Second
+const defaultScanTimeout = 2 * time.Minute
 
 type config struct {
 	Device deviceConfig `json:"device"`
@@ -193,5 +193,5 @@ func (c config) outputPath() (string, error) {
 	} else if strings.HasPrefix(dir, "~") {
 		return "", errors.New("配置 output.directory 不支持 ~用户名；请使用绝对路径或 ~/")
 	}
-	return filepath.Join(dir, "scan-"+time.Now().Format("20060102-150405.000000000")+"."+c.Output.Format), nil
+	return filepath.Join(dir, "scan-"+time.Now().Format("20060102-150405")+"."+c.Output.Format), nil
 }

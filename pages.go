@@ -11,7 +11,16 @@ import (
 	"time"
 )
 
-func scanPages(ctx context.Context, c *client, opts options, output string, singlePage bool, timeout time.Duration, wait func(context.Context) (bool, error), stdout, stderr io.Writer) (err error) {
+func scanPages(ctx context.Context, c *client, opts options, output string, singlePage bool, timeout time.Duration, wait func(context.Context) (bool, error), stdout, stderr io.Writer) error {
+	return scanPagesWithEvents(ctx, c, opts, output, singlePage, timeout, wait, stdout, stderr, nil)
+}
+
+func scanPagesWithEvents(ctx context.Context, c *client, opts options, output string, singlePage bool, timeout time.Duration, wait func(context.Context) (bool, error), stdout, stderr io.Writer, observe func(scanEvent)) (err error) {
+	emit := func(event scanEvent) {
+		if observe != nil {
+			observe(event)
+		}
+	}
 	if opts.Deskew || opts.Autocrop {
 		if opts.processor == nil {
 			factory := opts.newProcessor
@@ -41,10 +50,12 @@ func scanPages(ctx context.Context, c *client, opts options, output string, sing
 			if len(pages) > 0 {
 				if saveErr := writePDF(output, pages, opts.DPI); saveErr != nil {
 					err = errors.Join(err, fmt.Errorf("保存 PDF 失败；已完成图像保留在 %s：%w", staging, saveErr))
+					emit(scanEvent{kind: "retained", path: staging})
 					return
 				}
 				absolute, _ := filepath.Abs(output)
 				fmt.Fprintf(stdout, "已保存：%s\n共保存 %d 页。\n", absolute, len(pages))
+				emit(scanEvent{kind: "saved", path: output, page: len(pages)})
 				for _, path := range pages {
 					err = errors.Join(err, os.Remove(path))
 				}
@@ -52,6 +63,7 @@ func scanPages(ctx context.Context, c *client, opts options, output string, sing
 			// Never recursively remove a JPEG staging file retained by a failed scan.
 			if removeErr := os.Remove(staging); removeErr != nil {
 				err = errors.Join(err, fmt.Errorf("暂存图像保留在 %s：%w", staging, removeErr))
+				emit(scanEvent{kind: "retained", path: staging})
 			}
 		}()
 	}
@@ -88,18 +100,27 @@ func scanPages(ctx context.Context, c *client, opts options, output string, sing
 			}
 		}
 		fmt.Fprintln(stderr, "检查能力并扫描；请勿断电。Ctrl+C 可取消。")
+		emit(scanEvent{kind: "scanning", page: page})
 		pageCtx, cancel := context.WithTimeout(ctx, timeout)
 		result, err := c.scan(pageCtx, opts, scanPath)
 		cancel()
 		if result.originalPath != "" {
 			absolute, _ := filepath.Abs(result.originalPath)
 			fmt.Fprintf(stdout, "原图保留：%s\n", absolute)
+			emit(scanEvent{kind: "original", path: result.originalPath})
 		}
 		if result.warning != "" {
-			fmt.Fprintf(stderr, "第 %d 页预处理警告：%s；保留原图\n", page, result.warning)
+			message := fmt.Sprintf("第 %d 页预处理警告：%s；保留原图", page, result.warning)
+			fmt.Fprintln(stderr, message)
+			emit(scanEvent{kind: "warning", message: message})
 		}
 		for _, warning := range result.processing.Warnings {
-			fmt.Fprintf(stderr, "第 %d 页预处理警告：%s\n", page, warning)
+			message := fmt.Sprintf("第 %d 页预处理警告：%s", page, warning)
+			fmt.Fprintln(stderr, message)
+			emit(scanEvent{kind: "warning", message: message})
+		}
+		if result.retainedPath != "" {
+			emit(scanEvent{kind: "retained", path: result.retainedPath})
 		}
 		if err != nil {
 			return fmt.Errorf("扫描失败：%w\n未自动重试；若创建任务时断线，请先检查扫描器状态。", err)
@@ -110,16 +131,22 @@ func scanPages(ctx context.Context, c *client, opts options, output string, sing
 				angle = fmt.Sprintf("%.2f°", result.processing.Angle)
 			}
 			fmt.Fprintf(stdout, "Detected: %t；Angle: %s；Changed: %t；尺寸：%d × %d\n", result.processing.Detected, angle, result.processing.Changed, result.Width, result.Height)
+			emit(scanEvent{kind: "processed", page: page, processing: result.processing})
 		}
 		if pdf && !singlePage {
 			pages = append(pages, scanPath)
 			fmt.Fprintf(stdout, "已扫描第 %d 页；结束时合并保存 PDF。\n", page)
+			emit(scanEvent{kind: "scanned", page: page})
 		} else {
 			if pdf {
 				if err := writePDF(path, []string{scanPath}, opts.DPI); err != nil {
 					return err
 				}
+			}
+			emit(scanEvent{kind: "saved", path: path, page: 1})
+			if pdf {
 				if err := os.Remove(scanPath); err != nil {
+					emit(scanEvent{kind: "retained", path: staging})
 					return err
 				}
 			}
