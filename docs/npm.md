@@ -98,27 +98,110 @@ dist/verification.json
 
 `npm pack` 的 `prepack` 会拒绝没有运行包、文件缺失或文件被修改的仓库。不得以 `--ignore-scripts` 绕过发布端检查；这里与用户安装端支持 `--ignore-scripts` 是不同操作。
 
-## 人工验收与 npm 发布
+## 发布状态与授权边界
 
-从 Actions 下载构建产物并解压 artifact 外层 ZIP。上传物保留目录结构：安装包、校验文件与验证记录位于 `dist/`，运行时清单位于 `runtime/manifest.json`。先进入解压后的 `dist/` 子目录执行：
+- npm 包：`@codingbone/goscanner`；GitHub 仓库：`johnbitcn/GoScanner`。两者不是同一账户命名空间。
+- 首个版本 `0.1.0` 已通过本机交互式认证发布，registry 文件完整性值已与 Actions 产物核对一致。不要重新发布或覆盖该版本。
+- 当前 `.github/workflows/npm-macos-arm64.yml` 仍只在手动触发时构建、验证并上传 artifact，不执行 `npm publish`。普通 push、PR 和版本标签不会自动发布。
+- 用户已确认在 npm 添加 GitHub Actions 可信发布连接；尚未通过该连接执行过成功的 OIDC 发布，不能把“配置已保存”当作“自动发布已验证”。
+- npm 发布与 GitHub Release 独立。本项目不要求创建 GitHub Release，也不在仓库中保存 npm 令牌、验证码或认证回调链接。
+
+## 人工验收与 npm 发布（当前可用）
+
+### 1. 准备新版本并构建
+
+确认功能已合入 `main`，工作区干净。先修改 `package.json` 版本，再测试、提交并推送。仅增加补丁版本时，可以在仓库根目录执行：
 
 ```bash
-shasum -a 256 -c codingbone-goscanner-0.1.0.tgz.sha256
-npm install -g --ignore-scripts ./codingbone-goscanner-0.1.0.tgz
+npm version patch --no-git-tag-version
+npm test
+```
+
+这两条命令不会替你提交或推送。确认版本变更后，提交并推送到 `main`，再到 GitHub Actions 手动运行 `Build npm package (macOS arm64)`，选择 `main`。版本标签目前不是构建或发布触发器。
+
+记录本次 run URL 和源码 commit。仅使用全部步骤成功、对应预期 commit 的运行产物；失败或取消的运行不能作为发布依据。
+
+### 2. 下载并验收原始 tarball
+
+从本次 Actions 下载 artifact 并解压外层 ZIP。安装包、SHA256 和验证记录位于 `dist/`，运行时清单位于 `runtime/manifest.json`。进入解压后的 `dist/`，将下例版本号改为本次实际版本：
+
+```bash
+version="0.1.1"  # 示例；必须与本次 package.json 和 tarball 一致
+archive="codingbone-goscanner-${version}.tgz"
+shasum -a 256 -c "${archive}.sha256"
+npm install -g --ignore-scripts "./${archive}"
 goscanner --help
 ```
 
-然后在没有开发依赖的目标 Mac 上验收普通扫描、AI 处理、PDF、交互和取消。最低目标 macOS 14 与其他目标系统应有实际运行记录。真实设备测试仍需用户本机执行。
+不能通过重命名旧 tarball 来升级版本或改变 scope。检查 `verification.json`、根目录项目 `LICENSE` 和第三方声明；在没有开发依赖的目标 Mac 上验收普通扫描、AI、PDF、交互与取消。最低 macOS 14 兼容性仍需要对应系统的实际运行记录；模拟服务测试不等于真实扫描仪验收。
 
-确认版本、许可和权限后，可登录 npm，并发布已经验收的原始 tarball，不重新打包：
+### 3. 确认账户并手动发布
+
+后续命令沿用同一终端中的 `version` 和 `archive` 变量。确认当前账户拥有 `@codingbone` 的发布权限。未登录或账户不正确时，先执行登录命令，并在本机完成认证：
 
 ```bash
-npm login
-npm publish ./codingbone-goscanner-0.1.0.tgz --access public --dry-run
-npm publish ./codingbone-goscanner-0.1.0.tgz --access public
+npm whoami --registry=https://registry.npmjs.org/
+# 必要时执行，再重新核对 whoami：
+# npm login --registry=https://registry.npmjs.org/
+
+npm publish "./${archive}" --access public \
+  --registry=https://registry.npmjs.org/ --dry-run
+npm publish "./${archive}" --access public \
+  --registry=https://registry.npmjs.org/
 ```
 
-遵循账户的双因素认证要求；不在仓库或工作流中保存 npm 凭据。发布 tarball 不等于执行仓库的所有测试，应使用 Actions 已通过验证的产物与校验文件。npm 版本不能覆盖，后续发布需先修改 `package.json` 版本。
+确认 dry-run 的包名、版本、公开访问级别和 registry 后才执行正式命令。`npm whoami`、dry-run 成功不代表已完成发布所需的 2FA。如果返回 `EOTP`，在本机交互式终端完成发布认证；不要把验证码、令牌或认证链接发给代理，也不要绕过2FA。认证错误后先查询 registry，避免在状态不明时重复发布同一版本。
+
+必须发布已验收的原始 tarball，不在发布阶段重新打包。发布 tarball 不等于重新执行仓库测试，应保留对应 Actions run、commit、SHA256 和验证记录。
+
+### 4. 核对 registry 和实际安装
+
+```bash
+npm view "@codingbone/goscanner@${version}" \
+  version license dist.integrity --json --registry=https://registry.npmjs.org/
+npm view @codingbone/goscanner dist-tags --json \
+  --registry=https://registry.npmjs.org/
+node -e 'const fs=require("node:fs"),c=require("node:crypto"); console.log("sha512-"+c.createHash("sha512").update(fs.readFileSync(process.argv[1])).digest("base64"))' "${archive}"
+```
+
+核对版本、`Apache-2.0`、`latest` 指向及 registry 的 `dist.integrity`；后者应与上述原始 tarball 计算出的 SHA512 SRI 一致。再从 registry 安装本次精确版本，执行帮助命令和必要的扫描回归，不把本地 tarball 安装当作 registry 安装验证。
+
+## OIDC 可信发布配置（已保存，待实际验证）
+
+npm 包 Settings → Trusted Publisher 的配置约定如下。保存状态来自用户确认，不代表已完成首次 OIDC 发布：
+
+| 字段 | 值 |
+|---|---|
+| Publisher | GitHub Actions |
+| Label | `GoScanner GitHub Actions`，仅用于识别，可选 |
+| Organization or user | `johnbitcn`，这里是 GitHub 仓库所有者，不是 npm 账户 |
+| Repository | `GoScanner`，不填 URL |
+| Workflow filename | `npm-macos-arm64.yml`，不带 `.github/workflows/` 前缀 |
+| Environment name | 留空；当前工作流未绑定发布环境 |
+| Allow npm publish | 勾选，允许直接发布 |
+| Allow npm dist-tag | 暂不勾选，不授权独立管理 npm 标签 |
+
+`npm stage publish` 总是允许，但本项目计划使用直接发布。`npm publish --tag latest` 或 `--tag beta` 属于发布操作；独立执行 `npm dist-tag add/rm` 才需要额外的 dist-tag 权限。npm 的 `latest`、`beta` 标签与 Git 的版本标签不是同一概念。
+
+若以后增加 GitHub Environment 审批，需要同时修改发布 job 的 environment 和 npm 连接的 Environment name，使二者完全一致。工作流文件改名或仓库迁移时，也要同步核对可信发布配置。
+
+按 npm 当前规则，新连接必须在创建后 **2 天内完成首次成功发布**，才能验证并绑定仓库身份。超时后连接会过期，不能继续使用或编辑；需删除并重新创建，再完成首次发布。若自动发布实现来不及完成，应届时重建连接，不能为赶期限跳过验证。
+
+## 自动发布实施清单（尚未实现）
+
+目标流程：更新版本并合入 `main` → 推送对应版本标签（如 `v0.1.1`）→ 构建和验收 → 使用 OIDC 发布同一个 tarball → 核对 registry。
+
+实现前，推送标签不会自动发布。后续改造需满足：
+
+1. 只允许 `main` 上的明确版本标签触发发布；校验标签与 `package.json` 版本一致。普通提交和 PR 不发布，已发布版本不得覆盖。
+2. 保留当前 macOS arm64 构建、原生库审计、模型推理及安装验证。构建失败时禁止发布。
+3. 增加独立发布 job，只下载和发布本次已验证的 tarball，不重新编译或打包。只有该 job 获得 `id-token: write`；构建 job 保持最小权限。
+4. 发布端使用支持 OIDC 的固定 npm CLI 版本：**npm 11.5.1+、Node.js 22.14.0+**。当前构建使用的 Node.js 22 自带 npm 10，不能直接依赖它完成可信发布；可另用 Node.js 24 配合固定 npm 版本。用户安装端的 Node.js 22+ 要求不变。
+5. 不配置长期 `NPM_TOKEN` 或 `NODE_AUTH_TOKEN`；由 npm CLI 使用 GitHub OIDC 取得短期凭据。不得在 OIDC 失败后自动改用令牌或绕过2FA。
+6. 可按需增加 GitHub Environment 人工审批；这与 npm 2FA 不同。环境名必须和 npm 连接一致。
+7. 用一个未发布的新版本完成首次真实 OIDC 发布。记录 run、commit、版本和文件完整性值；确认 registry 元数据、精确版本安装及运行通过后，才能将可信发布标为“已验证”。
+
+官方依据：[npm Trusted publishing](https://docs.npmjs.com/trusted-publishers)。首次验证通过前保留上述手动发布流程。任何公开发布都需要明确的版本发布授权；不要把测试或配置验证当成发布许可。
 
 ## 尚未覆盖的验证
 
