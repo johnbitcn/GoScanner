@@ -1,10 +1,17 @@
-name: Build npm package (macOS arm64)
+name: Build and publish npm package (macOS arm64)
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: read
+
+concurrency:
+  group: npm-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -14,6 +21,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
       - name: Verify native Apple Silicon runner
         run: test "$(uname -m)" = arm64
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -31,13 +40,16 @@ jobs:
         with:
           path: .build/downloads
           key: npm-runtime-inputs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('npm/dependencies.json') }}
+      - name: Validate release tag and reject existing npm versions
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        run: node scripts/publish-npm.cjs --check-tag
       - name: Test npm launcher and package guards
         run: npm test
       - name: Build runtime, test Go code and run real model inference
         run: python3 scripts/build-npm.py
       - name: Pack and verify an offline installation without build dependencies
         run: node scripts/verify-npm.cjs
-      - name: Upload package for manual acceptance (no npm publication or GitHub Release)
+      - name: Upload verified package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: goscanner-macos-arm64-${{ github.run_number }}
@@ -49,3 +61,33 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Install pinned OIDC-capable npm CLI
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/goscanner-publish.npmrc
+        run: |
+          printf 'registry=https://registry.npmjs.org/\n' > "$NPM_CONFIG_USERCONFIG"
+          chmod 600 "$NPM_CONFIG_USERCONFIG"
+          npm install --global npm@11.21.1 --registry=https://registry.npmjs.org/
+          test "$(npm --version)" = '11.21.1'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: goscanner-macos-arm64-${{ github.run_number }}
+          path: release
+      - name: Publish original verified tarball using npm trusted publishing
+        env:
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/goscanner-publish.npmrc
+        run: node scripts/publish-npm.cjs release/dist
