@@ -105,9 +105,19 @@ dist/verification.json
 - 手动运行工作流只构建与验收，不发布。只有推送与 `package.json` 完全匹配的稳定版本标签（如 `v0.1.1`）才进入发布流程。
 - 标签提交必须已进入远程 `main`。工作流会拒绝其他仓库、错误事件、版本不匹配、无法确认 registry 状态或已经发布的版本。
 - 构建和发布分为两个 job。只有发布 job 获得 `id-token: write`；它下载同一次运行的原始 tarball，重新检查 SHA256、包元数据、项目 LICENSE、manifest 与验收记录，不能重新打包后发布。
-- 发布使用 Node.js 24、固定的 npm 11.21.1 和 provenance。结束后从 registry 核对精确版本、原始 tarball 的 integrity／SHA1 及 `latest`。
+- 发布使用 Node.js 24、固定的 npm 11.21.1 和 provenance。结束后从 registry 核对精确版本、原始 tarball 的 integrity／SHA1 及 `latest`。版本与标签可能延迟可见：核验禁用读取缓存，最多检查 30 次，间隔 10 秒；这只重试读取，不重试 `npm publish`。每次请求另有 30 秒超时，发布 job 总超时为 10 分钟。
 - 首个版本 `0.1.0` 曾通过本机交互认证发布；这是历史记录，不是后续发布方式。已发布版本不可覆盖。
 - 不自动创建 GitHub Release。版本标签与 npm 发布有关，但不等于创建 GitHub Release。
+
+## 已验证的发布链路
+
+`0.1.1` 已通过 [Actions run 41818775432](https://github.com/johnbitcn/GoScanner/actions/runs/41818775432) 的 OIDC 发布，标签 `v0.1.1` 对应提交 `ad7e4b4e45926138ff5bd3c1da968622e109d7b0`。
+
+- 构建与离线安装验收成功；原始 artifact 为 `goscanner-macos-arm64-6`（ID `13316985223`）。
+- npm 发布命令成功，registry 已提供 provenance；后续只读复核确认原始 tarball 的 SHA512 integrity／SHA1 与 registry 完全一致，核验时 `latest` 为 `0.1.1`。
+- 原始 tarball SHA256：`1375bf977795a3ae33fdb70eef6aa145e9b4ca336dd200ad57c1bc728190ce35`。
+- **该 run 的最终状态仍是 failure。** 原因是旧逻辑在发布后仅等待约 60 秒，期间未读到版本。不能把这次核验超时写成 OIDC 发布失败，也不能将后来补验通过写成原 run 全绿。
+- 后续逻辑已增加版本与 `latest` 的读取等待，并增加延迟可见、超时及 integrity 不符的回归测试。该修正不重打 `v0.1.1`，不重复发布 `0.1.1`。
 
 ## npm 可信发布配置
 
@@ -189,5 +199,6 @@ npm install --global --prefix "$destination" --ignore-scripts --offline "./${arc
 - **版本或 main 校验失败：** 修正版本与提交归属；不会因此执行发布。
 - **构建或验收失败：** 不发布，不使用失败运行中的产物。
 - **OIDC 认证失败：** 核对 npm 可信发布中的仓库、工作流文件名、Environment、允许发布权限，以及连接是否仍有效。检查发布 job 的 `id-token: write` 与 npm 版本；不要改用本地登录或长期令牌绕过。
-- **publish 后核对失败：** 先查询 registry。版本可能已经发布，不要自动重复发布；比较实际 integrity，明确是发布失败还是可见性／核对失败。
+- **publish 后核对失败：** 先查询 registry，下载同一次 run 的原始 artifact，独立核对 SHA256、registry integrity／SHA1、`latest` 和 provenance 是否存在。版本可能已经发布；此时只做只读复核，不自动重跑整个发布流程，不移动标签，不重复发布。记录“构建”“上传”“可见性”“完整性核验”各阶段的结果，保留原 run 的真实状态。
 - **首次可信连接过期：** 由维护者按 npm 界面要求重新建立连接，再考虑重跑失败 job。重跑前仍须查询 registry，避免重复发布。
+- **沟通与等待：** 先说明本次是完善发布流程还是只触发既有流程。启动后提供 run URL 和当前阶段，不把全量原生构建的等待说成 npm 上传。等待器被中断不等于 Actions 已取消；不要因此另起一条发布流程。

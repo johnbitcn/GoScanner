@@ -5,7 +5,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { setTimeout: delay } = require('node:timers/promises');
+const timers = require('node:timers/promises');
 const pkg = require('../package.json');
 
 const registry = 'https://registry.npmjs.org/';
@@ -56,7 +56,7 @@ function checkArtifact(directory, version) {
 }
 
 async function registryVersion(version) {
-  const response = await fetch(`${registry}${encodeURIComponent('@codingbone/goscanner')}/${version}`, { signal: AbortSignal.timeout(30000) });
+  const response = await fetch(`${registry}${encodeURIComponent('@codingbone/goscanner')}/${version}`, { cache: 'no-store', signal: AbortSignal.timeout(30000) });
   if (response.status === 404) return null;
   assert.equal(response.status, 200, `Registry lookup failed: HTTP ${response.status}`);
   const metadata = await response.json();
@@ -75,6 +75,21 @@ function checkPublished(metadata, version, artifact) {
   assert.equal(metadata.dist.shasum, artifact.shasum, 'Published package SHA1 differs from the CI tarball');
 }
 
+async function verifyPublication(version, artifact) {
+  // Registry propagation can lag an accepted upload; retry reads, never npm publish.
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const metadata = await registryVersion(version);
+    if (metadata) {
+      checkPublished(metadata, version, artifact);
+      const response = await fetch(`${registry}${encodeURIComponent('@codingbone/goscanner')}`, { cache: 'no-store', signal: AbortSignal.timeout(30000) });
+      assert.equal(response.status, 200, 'Cannot verify dist-tags');
+      if ((await response.json())['dist-tags']?.latest === version) return;
+    }
+    if (attempt < 29) await timers.setTimeout(10000);
+  }
+  throw new Error('Registry version or latest is not visible after 30 checks; the package may already be published. Inspect before retrying; do not republish.');
+}
+
 async function main() {
   const version = releaseVersion(process.env);
   if (process.argv[2] === '--check-tag') {
@@ -90,19 +105,10 @@ async function main() {
   // Publish the verified tarball exactly once; do not rebuild it on the Linux publisher.
   execFileSync('npm', ['publish', artifact.archive, '--access', 'public', '--provenance', `--registry=${registry}`],
     { cwd: path.dirname(artifact.archive), stdio: 'inherit' });
-  let metadata;
-  for (let attempt = 0; attempt < 12; attempt++) {
-    metadata = await registryVersion(version);
-    if (metadata) break;
-    await delay(5000);
-  }
-  assert(metadata, 'Publication command completed, but the registry version is not visible; inspect before retrying');
-  checkPublished(metadata, version, artifact);
-  const response = await fetch(`${registry}${encodeURIComponent('@codingbone/goscanner')}`, { signal: AbortSignal.timeout(30000) });
-  assert.equal(response.status, 200, 'Cannot verify dist-tags');
-  assert.equal((await response.json())['dist-tags'].latest, version, 'latest does not point to this version');
+  console.log('Upload completed. Waiting for registry version and latest visibility; retrying reads only.');
+  await verifyPublication(version, artifact);
   console.log(`Verified npm publication: @codingbone/goscanner@${version}; original CI integrity and latest match.`);
 }
 
 if (require.main === module) main().catch((error) => { console.error(error.message); process.exitCode = 1; });
-module.exports = { releaseVersion, checkArtifact, registryVersion, requireNewVersion, checkPublished };
+module.exports = { releaseVersion, checkArtifact, registryVersion, requireNewVersion, checkPublished, verifyPublication };

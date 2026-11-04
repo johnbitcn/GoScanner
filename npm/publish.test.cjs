@@ -7,7 +7,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { test } = require('node:test');
-const { releaseVersion, checkArtifact, registryVersion, requireNewVersion, checkPublished } = require('../scripts/publish-npm.cjs');
+const timers = require('node:timers/promises');
+const { releaseVersion, checkArtifact, registryVersion, requireNewVersion, checkPublished, verifyPublication } = require('../scripts/publish-npm.cjs');
 const pkg = require('../package.json');
 
 function artifactFixture(t) {
@@ -96,4 +97,40 @@ test('publication must match the exact version and original tarball integrity', 
     { dist: { integrity: artifact.integrity, shasum: 'wrong' } }]) {
     assert.throws(() => checkPublished({ ...metadata, ...change }, pkg.version, artifact));
   }
+});
+
+test('post-publish verification waits for both version and latest propagation using uncached reads', async (t) => {
+  const artifact = { integrity: 'sha512-test-only', shasum: 'test-only' };
+  let versions = 0, tags = 0, waits = 0;
+  t.mock.method(timers, 'setTimeout', async (ms) => { assert.equal(ms, 10000); waits++; });
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(options.cache, 'no-store');
+    if (url.endsWith('/' + pkg.version)) {
+      versions++;
+      return new Response(JSON.stringify({ name: pkg.name, version: pkg.version, dist: artifact }), { status: versions === 1 ? 404 : 200 });
+    }
+    tags++;
+    return new Response(JSON.stringify({ 'dist-tags': { latest: tags === 1 ? 'old-version' : pkg.version } }));
+  });
+  await verifyPublication(pkg.version, artifact);
+  assert.deepEqual({ versions, tags, waits }, { versions: 3, tags: 2, waits: 2 });
+});
+
+test('post-publish propagation timeout is bounded and warns against republishing', async (t) => {
+  let lookups = 0, waits = 0;
+  t.mock.method(timers, 'setTimeout', async () => { waits++; });
+  t.mock.method(globalThis, 'fetch', async () => { lookups++; return new Response('', { status: 404 }); });
+  await assert.rejects(verifyPublication(pkg.version, {}), /package may already be published.*do not republish/);
+  assert.deepEqual({ lookups, waits }, { lookups: 30, waits: 29 });
+});
+
+test('post-publish integrity mismatch fails immediately without a retry', async (t) => {
+  let lookups = 0;
+  t.mock.method(timers, 'setTimeout', async () => { assert.fail('Never retry a mismatched package'); });
+  t.mock.method(globalThis, 'fetch', async () => {
+    lookups++;
+    return new Response(JSON.stringify({ name: pkg.name, version: pkg.version, dist: { integrity: 'wrong', shasum: 'wrong' } }));
+  });
+  await assert.rejects(verifyPublication(pkg.version, { integrity: 'expected', shasum: 'expected' }), /integrity differs/);
+  assert.equal(lookups, 1);
 });
