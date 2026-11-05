@@ -1,38 +1,40 @@
+[English](README.md) | [简体中文](README-CN.md)
+
 # GoScanner
 
-## 简介
+## Introduction
 
-**在 macOS 上使用局域网 eSCL 或 WSD 扫描仪，无需厂商专用扫描驱动。**
+**Use network eSCL or WSD scanners on macOS without a vendor-specific scanning driver.**
 
-GoScanner 通过 eSCL 或 WSD 扫描服务与设备通信，提供交互式终端界面和面向 Agent 的 JSON 模式。它可以读取设备能力、逐页扫描、保存多页 PDF，并在本机完成可选的 AI 纠偏和裁切。
+GoScanner communicates with devices through eSCL or WSD scan services. It provides an interactive terminal interface and a JSON mode for Agents. It can read device capabilities, scan pages, save multipage PDFs, and optionally run AI deskew and cropping locally.
 
-项目不限制设备品牌，但设备必须提供 eSCL 或 WSD 扫描服务；**支持 WSD 打印，不代表支持 WSD 扫描**。仅 USB 或厂商私有扫描协议不在本次支持范围。
+The project does not restrict device brands, but a device must expose an eSCL or WSD scan service. **Support for WSD printing does not imply support for WSD scanning.** USB-only devices and proprietary scanning protocols are outside the current scope.
 
 <p align="center">
   <img
     src="https://github.com/user-attachments/assets/9178da8a-b5ae-407a-a454-afa0f5b3f633"
-    alt="动画演示"
+    alt="Animated demo"
     width="800"
   />
 </p>
 
-## 安装与首次扫描
+## Installation and first scan
 
-### 最简单的安装方法
+### The simplest installation method
 
-需要 **Apple Silicon Mac、macOS 14 或更新版本，以及 Node.js 22 或更新版本**：
+Requires an **Apple Silicon Mac, macOS 14 or later, and Node.js 22 or later**:
 
 ```bash
 npm install -g @codingbone/goscanner
 ```
 
-首次启动时，从设备列表选择扫描仪，或选择“手动添加”并输入 IP。程序通过发现取得实际服务地址，只读验证成功后保存默认设备；显示“就绪”后按 Enter 开始扫描。无需填写扫描端口、路径或协议。
+On the first launch, select a scanner from the device list, or choose “Add manually” and enter its IP address. The program discovers the actual service address, validates it without scanning, and then saves the default device. When it shows “Ready,” press Enter to start scanning. You do not need to enter a scan port, path, or protocol.
 
-默认使用设备列表中的首选协议；首次确认双协议设备时首选 eSCL。在设备列表按 `p` 可切换并保存首选协议。连接失败会报告原因，不自动换协议或重扫。
+The registered preferred protocol is used by default. eSCL is preferred when both protocols are first confirmed. Press `p` in the device list to change and save the preferred protocol. Connection failures report their cause; they do not trigger automatic protocol switching or rescanning.
 
-## 命令详解
+## Command reference
 
-### 查看帮助
+### View help
 
 ```bash
 goscanner --help
@@ -41,13 +43,13 @@ goscanner info --help
 goscanner discover --help
 ```
 
-顶层帮助只显示导航和常用示例；子命令帮助按用途分组。说明自动换行并对齐，窄终端改为上下排列。人类帮助仅读取配置中的语言设置，不查询设备、不清屏，也不启用分页器；配置损坏时仍可显示帮助。
+Top-level help shows navigation and common examples. Subcommand help groups options by purpose. Descriptions wrap and align to the terminal width; narrow terminals place descriptions below options. Human help reads only the language setting from configuration. It does not query devices, clear the screen, or use a pager, and it remains available when configuration is damaged.
 
-在交互终端中，普通命令使用内联 TUI，不进入全屏界面。标准输入或输出不是终端，或 `TERM=dumb` 时，使用普通文本模式；**重定向不会自动启用 Agent 模式**。`NO_COLOR=1` 可关闭颜色。
+In an interactive terminal, normal commands use an inline TUI, not a full-screen interface. If standard input or output is not a terminal, or `TERM=dumb`, the program uses plain-text mode. **Redirecting output does not automatically enable Agent mode.** Set `NO_COLOR=1` to disable colors.
 
-### 界面语言
+### Interface language
 
-人类 TUI、帮助、扫描提示和错误说明支持英文与简体中文：
+The human TUI, help, scan prompts, and error explanations support English and Simplified Chinese:
 
 ```bash
 goscanner --lang zh-CN
@@ -55,120 +57,120 @@ goscanner --lang en scan --help
 goscanner scan --lang zh-CN -o 合同.pdf
 ```
 
-语言选择顺序：**显式 `--lang` > 配置文件的 `language` > 系统语言自动检测**。参数和配置都接受 `auto`、`en`、`zh-CN`。未设置配置字段时使用 `auto`；自动检测按 `LC_ALL`、`LC_MESSAGES`、`LANG` 使用第一个非空值，缺少或不支持时回退英文。
+Language priority is **explicit `--lang` > configuration `language` > automatic system-language detection**. Both the option and configuration accept `auto`, `en`, and `zh-CN`. An omitted configuration field defaults to `auto`. Automatic detection uses the first nonempty value of `LC_ALL`, `LC_MESSAGES`, and `LANG`, in that order. Missing or unsupported languages fall back to English.
 
-可在已有 `~/.config/goscanner/config.json` 中增加 `"language": "zh-CN"`，固定使用中文。也可在 TUI 设置页选择语言并确认保存。`--lang en` 只覆盖本次运行，不写入语言偏好；显式 `--lang auto` 跳过配置中的固定语言，直接自动检测。查看帮助时，把语言参数放在 `--help` 前。
+Add `"language": "zh-CN"` to your existing `~/.config/goscanner/config.json` to keep the Chinese interface. You can also choose and save a language in TUI settings. `--lang en` overrides this run only; it does not save a language preference. Explicit `--lang auto` bypasses a fixed language in configuration and detects the system language directly. Place language options before `--help` when requesting help.
 
-Agent 的项目说明始终使用英文，不受 `--lang`、配置中的 `language` 或系统语言影响。设备名称、路径、用户输入和外部原始诊断不强制翻译。完整规则见[界面与 Agent 输出](docs/interfaces.md)。
+Project-generated Agent messages always use English, regardless of `--lang`, configuration `language`, or the system language. Device names, paths, user input, and original external diagnostics are not forcibly translated. See [Human and Agent interfaces (Chinese)](docs/interfaces.md) for the complete contract.
 
-### `goscanner`：交互扫描
+### `goscanner`: interactive scanning
 
-无参数运行，在交互终端中相当于打开扫描界面：
+With no arguments, the program opens the scan interface in an interactive terminal:
 
 ```bash
 goscanner
 ```
 
-首页设备栏和设备列表显示“**型号** + 蓝色 IP + 橘黄色当前协议”。普通使用不需要选择协议。没有发现元数据时显示“未知型号”，后续发现会补齐。已保存设备不代表当前就绪，选用后仍会重新验证。
+The device bar and device list show a **bold model**, a blue IP address, and the current protocol in orange. Normal use does not require protocol selection. Without discovery metadata, the model is shown as unknown; later discovery fills it in. A saved device is not necessarily ready. It is validated again when selected.
 
-| 按键   | 操作                                             |
-| ------ | ------------------------------------------------ |
-| Enter  | 就绪时开始扫描；换页等待时继续下一页             |
-| `r`    | 重新检查设备状态和参数                           |
-| `s`    | 修改本次扫描设置                                 |
-| `d`    | 更换设备，选用已保存设备、手动输入 IP 或开启发现 |
-| `p`    | 在设备列表中切换并保存所选设备的首选协议         |
-| Esc    | 返回、结束换页或退出，按当前界面提示操作         |
-| Ctrl+C | 取消当前操作，并等待任务清理                     |
+| Key | Action |
+| --- | --- |
+| Enter | Start scanning when ready; continue with the next page while waiting |
+| `r` | Recheck device status and options |
+| `s` | Edit settings for the scan |
+| `d` | Switch devices: select a saved device, enter an IP address, or start discovery |
+| `p` | Change and save the selected device's preferred protocol in the device list |
+| Esc | Go back, end page changes, or exit, as indicated by the current screen |
+| Ctrl+C | Cancel the current operation and wait for cleanup |
 
-设置页一次列出全部选项。用 ↑/↓ 选择，Enter 展开可选值，Space 切换开关。分辨率、颜色和格式按设备能力提供选项；仅输出路径和自定义区域需要输入文字。增加“界面语言”选项，可选择自动检测、英文或简体中文。选择“保存并应用”后，将全部可见设置保存到配置文件，返回扫描页并重新检查，不会自动开始扫描。Esc 放弃修改，不写配置。输出路径只保存目录和格式，下次自动生成新文件名。命令行 `--lang` 仍优先于保存的语言偏好；没有该参数时，确认后立即切换界面语言。
+The settings page lists all options. Use ↑/↓ to select an item, Enter to open its choices, and Space to toggle a switch. Resolution, color, and format choices come from device capabilities. Only the output path and custom scan area require text input. “Interface language” offers automatic detection, `English`, or `简体中文`. Language names use their native form. Select “Save and apply” to save all visible settings, return to the scan page, and recheck the device. This does not start a scan. Esc discards changes without writing configuration. Only the output directory and format are saved; the next run generates a new filename. A command-line `--lang` still overrides the saved preference. Without that option, confirming a language change switches the interface immediately.
 
-### `discover`：发现设备
+### `discover`: find devices
 
 ```bash
 goscanner discover
 goscanner discover --timeout 5s
 ```
 
-并行发现局域网中的 eSCL（Bonjour）和 WSD（WS-Discovery）扫描设备，显示型号、名称、协议和完整扫描端点等信息。只有可核对的 UUID 或有效序列号等身份信息确认一致时才合并；同 IP 或相似型号不足以合并。无法确认时显示为两台设备。首次确认双协议时首选 eSCL，并保存两种协议的地址。用户在设备列表按 `p` 修改首选协议后，重新发现和能力刷新不会覆盖该设置；连接失败也不会自动换协议。默认超时为 **10 秒**；不会选择设备、修改默认设备或启动扫描。
+Discovers eSCL (Bonjour) and WSD (WS-Discovery) scanners on the local network in parallel. Results include the model, name, protocol, and full scan endpoint. Records merge only when comparable identity information, such as a UUID or valid serial number, confirms they are the same device. The same IP address or a similar model is not sufficient. Unconfirmed identities remain separate devices. When both protocols are first confirmed, eSCL becomes the preference and both addresses are saved. Later discovery and capability refreshes preserve a protocol preference set with `p`; connection failure does not switch protocols. The default timeout is **10 seconds**. Discovery does not select a device, change the default device, or start a scan.
 
-普通模式会将发现信息记录到 `drives.json`。交互终端显示结果界面；普通文本模式向 stdout 输出 JSON 数组，警告写入 stderr。需要稳定的机器接口时，请使用 `--agent discover`。
+Normal mode records discovery results in `drives.json`. An interactive terminal shows a results interface. Plain-text mode writes a JSON array to stdout and warnings to stderr. Use `--agent discover` for a stable machine interface.
 
-找不到设备时，先检查设备是否唤醒、Wi-Fi 客户端隔离、VPN、防火墙和 macOS 本地网络权限。仅知道 IP 时仍需设备表或发现结果解析服务地址；已知完整服务地址时可用 `info` 的高级参数查询，但不能绕过网络或系统权限限制。
+If no device is found, check whether it is awake, Wi-Fi client isolation, VPN settings, firewalls, and macOS local network permissions. An IP address alone still requires the device registry or discovery to resolve a service address. If you know the full service address, use the advanced `info` options to query it. They cannot bypass network or system permission restrictions.
 
-### `info`：读取能力与状态
+### `info`: read capabilities and status
 
 ```bash
 goscanner info
 goscanner info --host 192.168.1.8
-# 可选：仅本次改用 WSD，不修改设备首选协议。
+# Optional: use WSD for this operation without changing the saved preference.
 goscanner info --host 192.168.1.8 --protocol wsd
 ```
 
-只读查询设备状态、支持的格式、颜色、DPI 和扫描尺寸，不创建扫描任务。默认超时为 **2 分钟**。普通模式将成功查询结果记录到设备信息表；TUI 中选择新设备并验证成功后，才保存默认设备。
+Reads device status, supported formats, colors, DPI, and scan dimensions without creating a scan job. The default timeout is **2 minutes**. Normal mode records successful queries in the device registry. The TUI saves a new default device only after selection and successful validation.
 
-`info` 和 `scan` 共用以下常用参数：
+`info` and `scan` share these common options:
 
-| 参数                 | 说明                                                                           |
-| -------------------- | ------------------------------------------------------------------------------ |
-| `--host IP`          | 只给 IP 时，使用设备表或发现结果取得实际服务地址；不接受 URL、主机名或凭据     |
-| `--protocol NAME`    | 可选 `wsd` 或 `escl`，仅覆盖本次；不指定时使用设备表首选协议，不修改保存的偏好 |
-| `--timeout DURATION` | 本次命令超时，如 `10s`、`2m`                                                   |
+| Option | Description |
+| --- | --- |
+| `--host IP` | Resolve the actual service address from the device registry or discovery. URLs, hostnames, and credentials are not accepted |
+| `--protocol NAME` | Optional `wsd` or `escl`, for this operation only. Otherwise use the registered preference; this does not change the saved preference |
+| `--timeout DURATION` | Timeout for this command, such as `10s` or `2m` |
 
-已知完整服务地址时，仍可使用高级参数 `--endpoint`，或 `--host` 配合 `--port`、`--path`、`--scheme`。完整参数及互斥规则见 `goscanner info --help`。普通设备添加不需要这些参数。
+If the full service address is known, use the advanced `--endpoint` option, or `--host` with `--port`, `--path`, and `--scheme`. See `goscanner info --help` for all options and mutual-exclusion rules. Normal device registration does not need these options.
 
-未指定地址时使用配置定位默认设备，再按设备表的首选协议连接；CLI 显式 `--protocol` 仅覆盖本次。交互界面在没有默认设备时打开设备列表。手动添加只输入 IP，程序通过发现取得实际端口和路径，再验证保存；发现失败不猜地址。设备连接失败时，不会自动切换到其他设备或另一协议。
+Without an explicit address, configuration identifies the default device and the registry supplies its preferred protocol. Explicit CLI `--protocol` overrides this operation only. With no default device, the TUI opens the device list. Manual registration takes only an IP address: discovery resolves the actual port and path before validation and saving. Failed discovery does not trigger address guessing. Connection failure does not switch to another device or protocol.
 
-### `scan`：扫描并保存
+### `scan`: scan and save
 
 ```bash
-# 连续扫描，结束后合并为 PDF。
+# Scan pages and merge them into a PDF when finished.
 goscanner scan -o 文档.pdf
 
-# 只扫描一页，保存为 PNG。
+# Scan one page and save it as PNG.
 goscanner scan --manual=false -o 单页.png
 
-# 按设备能力选择灰度、DPI 和完整平板区域。
+# Select grayscale, DPI, and the full flatbed area according to device capabilities.
 goscanner scan --dpi 300 --mode gray --area full -o 灰度.tiff
 
-# 连续扫描，每页独立保存 PDF。
+# Scan pages and save each as a separate PDF.
 goscanner scan --single-page -o 分页.pdf
 ```
 
-| 参数                 | 说明与内置默认值                                                                      |
-| -------------------- | ------------------------------------------------------------------------------------- |
-| `--dpi DPI`          | 分辨率，默认 `150`；必须为设备支持的值                                                |
-| `--mode MODE`        | `color`（彩色）或 `gray`（灰度），默认 `color`                                        |
-| `--area AREA`        | `a4`、`full` 或 `x,y,width,height`，默认 `a4`；自定义区域单位为毫米，原点是平板左上角 |
-| `-o FILE`            | 输出路径；支持 `.jpg`、`.jpeg`、`.tif`、`.tiff`、`.png`、`.pdf`                       |
-| `--manual[=BOOL]`    | 连续换页；TUI 默认开启，普通文本模式默认关闭。用 `--manual=false` 明确关闭            |
-| `--single-page`      | 仅适用于 PDF，每页独立保存；默认关闭                                                  |
-| `--deskew`           | AI 纠偏，默认关闭，启用后额外保留设备原图                                             |
-| `--autocrop`         | AI 裁切，默认关闭，启用后额外保留设备原图                                             |
-| `--timeout DURATION` | 每页扫描超时，默认 `2m0s`；不含设备选择或换页等待                                     |
+| Option | Description and built-in default |
+| --- | --- |
+| `--dpi DPI` | Resolution; default: `150`. Must be supported by the device |
+| `--mode MODE` | `color` or `gray`; default: `color` |
+| `--area AREA` | `a4`, `full`, or `x,y,width,height`; default: `a4`. Custom coordinates are in millimeters, measured from the flatbed's upper-left corner |
+| `-o FILE` | Output path; supports `.jpg`, `.jpeg`, `.tif`, `.tiff`, `.png`, and `.pdf` |
+| `--manual[=BOOL]` | Manual page changes. When not configured, defaults to on in the TUI and off in plain-text mode. Use `--manual=false` to disable |
+| `--single-page` | Save each PDF page separately; PDF output only. Off by default |
+| `--deskew` | AI deskew; off by default. Retains an additional device original when enabled |
+| `--autocrop` | AI crop; off by default. Retains an additional device original when enabled |
+| `--timeout DURATION` | Timeout per scan page; default: `2m0s`. Excludes device selection and page-change waits |
 
-TUI 扫描前会检查 `Idle` 状态及当前参数，通过后仍须按 Enter 才开始。就绪状态带有检查时间，不是设备预约；真正扫描前会再次读取能力并校验。有效但忙碌的设备可保存地址，但不能开始扫描。程序不会自动重试扫描任务。
+Before scanning, the TUI checks for `Idle` status and validates the current options. Enter is still required to start. Readiness includes a check timestamp, not a device reservation; capabilities are read and validated again before the actual scan. A valid but busy device address can be saved, but scanning remains disabled. The program never automatically retries scan jobs.
 
-普通文本模式需要 `--manual` 才会等待换页，按任意键继续、Esc 结束；此模式需要交互终端。它不会因输出进入管道而变成 Agent 模式。
+In plain-text mode, `--manual` or a saved `scan.manual: true` enables page-change waits. Press any key to continue or Esc to finish; this mode requires an interactive terminal. Piping output does not turn it into Agent mode.
 
-#### 默认文件名
+#### Default filenames
 
-未指定 `-o` 时，默认在运行命令的当前目录保存，文件名主体为 **`scan-YYYYMMDD-HHMMSS`**，精确到秒。同一次连续扫描共用文件名主体：
+Without `-o`, output defaults to the command's current working directory. The filename stem is **`scan-YYYYMMDD-HHMMSS`**, with one-second precision. A single continuous scanning session uses one stem:
 
-| 输出方式               | 文件名示例                                  |
-| ---------------------- | ------------------------------------------- |
-| 单页图片               | `scan-20261104-143025.jpg`                  |
-| 连续图片               | `scan-20261104-143025-001.jpg`、`…-002.jpg` |
-| 合并 PDF               | `scan-20261104-143025.pdf`                  |
-| 连续扫描，每页独立 PDF | `scan-20261104-143025-001.pdf`、`…-002.pdf` |
+| Output mode | Example filename |
+| --- | --- |
+| Single image | `scan-20261104-143025.jpg` |
+| Continuous images | `scan-20261104-143025-001.jpg`, `…-002.jpg` |
+| Merged PDF | `scan-20261104-143025.pdf` |
+| Continuous scanning with a PDF per page | `scan-20261104-143025-001.pdf`, `…-002.pdf` |
 
-指定 `-o 文档.pdf` 时使用自定义主体；连续独立页为 `文档-001.pdf`、`文档-002.pdf`。AI 原图使用 `-original` 标记，连续扫描原图例如 `文档-original-001.jpg`；WSD 的 PNG 输出对应原图为 TIFF；eSCL 原图后缀按实际源格式确定。PDF 对应的原图为 JPEG。
+With `-o 文档.pdf`, the custom stem is used. Separate pages become `文档-001.pdf` and `文档-002.pdf`. AI originals use the `-original` marker; for example, continuous scan originals are named `文档-original-001.jpg`. For WSD PNG output, the original is TIFF. eSCL original extensions follow the actual source format. PDF originals are JPEG.
 
-目录和格式可由配置修改。同秒重复运行且输出路径相同时可能重名；程序会报错，不覆盖已有文件，也不会自动跳过已占用页码。
+Configuration can change the directory and format. Runs within the same second can collide if they use the same output path. The program reports an error rather than overwriting files or skipping occupied page numbers.
 
-### `--agent`：供脚本与 Agent 调用
+### `--agent`: scripts and Agents
 
-**将 `--agent` 放在子命令前**：
+**Place `--agent` before the subcommand**:
 
 ```bash
 goscanner --agent discover
@@ -177,49 +179,49 @@ goscanner --agent scan --host 192.168.1.8 -o 单页.pdf
 goscanner --agent scan --help
 ```
 
-- 不读键盘、不启动交互界面，不修改配置或设备信息表。
-- 只给未登记 IP 时，按 IP 筛选发现结果；没有明确地址，也没有默认设备时，返回 `device_required`，不自动发现或选择设备。
-- 不支持交互式连续换页；每次 `scan` 执行一次扫描。
-- stdout 只返回一个紧凑 JSON 对象，不混入进度日志或颜色。
-- 项目生成的字段、状态、错误说明、警告和帮助固定为英文；外部原始内容不强制翻译。
-- `status` 为 `ok`、`error` 或 `partial`。失败和部分完成返回非零退出码；根据 `files`、`originals`、`retained` 等字段核对实际保留的文件。
+- It does not read the keyboard, start the TUI, or modify configuration or the device registry.
+- An unregistered IP address filters discovery results by IP. Without an explicit address or default device, the program returns `device_required`; it does not discover or select a device automatically.
+- Interactive page changes are not supported. Each `scan` performs one acquisition. If manual scanning is saved as enabled, explicitly pass `--manual=false`.
+- Stdout contains exactly one compact JSON object, without progress logs or colors.
+- Project-generated fields, statuses, error explanations, warnings, and help always use English. Original external content is not forcibly translated.
+- `status` is `ok`, `error`, or `partial`. Failure and partial completion return nonzero exit codes. Check `files`, `originals`, `retained`, and other fields to identify files actually kept.
 
-成功结果示例（节选）：
+Successful result excerpt:
 
 ```json
 { "status": "ok", "files": ["/absolute/path/document.pdf"], "pages": 1 }
 ```
 
-字段、错误码、退出与部分完成约定见[界面与 Agent 输出](docs/interfaces.md)。
+See [Human and Agent interfaces (Chinese)](docs/interfaces.md) for fields, error codes, exit behavior, and partial-completion rules.
 
-### 文件安全与故障处理
+### File safety and troubleshooting
 
-文件先在输出目录暂存，完整校验后再发布，不将未完成图像当作最终文件。输出文件系统必须支持硬链接。图像、PDF 和原图权限为 `0600`，新建输出目录与图像暂存目录权限为 `0700`。
+Files are staged in the output directory and published only after complete validation. Incomplete images are not treated as final files. The output filesystem must support hard links. Images, PDFs, and originals use permissions `0600`; newly created output and image staging directories use `0700`.
 
-| 情况                     | 处理方式                                                                         |
-| ------------------------ | -------------------------------------------------------------------------------- |
-| 参数或格式不受支持       | 运行 `info` 核对能力，调整 DPI、区域、颜色或源格式；能力列表不保证任意组合均可用 |
-| 扫描超时                 | 查看设备状态，必要时调整 `--timeout`，不要反复启动任务                           |
-| 图像发布或 PDF 保存失败  | 按错误信息查找保留的暂存图像、`.part` 或 PDF 暂存目录，先备份再处理              |
-| 纠偏不正确或裁切丢失内容 | 核对额外原图，使用 `--deskew=false --autocrop=false` 关闭处理                    |
-| 更换设备                 | 在 TUI 按 `d`；取消或验证失败不会替换原设备                                      |
+| Situation | Action |
+| --- | --- |
+| Unsupported option or format | Run `info` to check capabilities, then adjust DPI, area, color, or source format. Capability lists do not guarantee every combination |
+| Scan timeout | Check device status and adjust `--timeout` if necessary. Do not repeatedly start jobs |
+| Image publication or PDF save failure | Find the retained images, `.part` file, or PDF staging directory reported by the error. Back them up before further action |
+| Incorrect deskew or missing content after cropping | Check the additional original. Use `--deskew=false --autocrop=false` to disable processing |
+| Switching devices | Press `d` in the TUI. Cancellation or failed validation does not replace the previous device |
 
-Ctrl+C 或 SIGTERM 会尝试取消本客户端已知编号的任务；若创建任务时连接中断且没有获得编号，程序无法可靠取消未知任务。合并 PDF 会在正常结束、中断或后续页失败时尝试保存已完成页面；强制终止或断电不保证执行保存。清理最多可能额外等待 10 秒，文件系统和本地图像处理不是硬实时操作。
+Ctrl+C or SIGTERM attempts to cancel this client's job when its ID is known. If the connection fails during job creation before an ID is received, the program cannot reliably cancel the unknown job. Merged PDF output attempts to save completed pages on normal completion, interruption, or a later-page failure. Forced termination and power loss do not guarantee saving. Cleanup can take up to 10 additional seconds; filesystem operations and local image processing are not hard real-time operations.
 
-扫描图像和 AI 推理均在本机处理，不上传到云端推理服务。WSD 使用明文 HTTP，仅应在可信局域网使用，不要向互联网开放扫描端口。iCloud、Google Drive 等同步目录仍可能上传输出文件，敏感文档应保存到非同步目录。
+Scan images and AI inference are processed locally, without uploading them to a cloud inference service. WSD uses unencrypted HTTP: use it only on a trusted LAN and do not expose scan ports to the internet. Sync folders such as iCloud and Google Drive can still upload output files. Save sensitive documents in a nonsynced directory.
 
-遇到设备差异时，可通过 [GitHub Issues](https://github.com/johnbitcn/GoScanner/issues) 提供设备型号、系统与包版本、执行命令、错误信息及脱敏后的 `discover`／`info` 输出。不要提交任务令牌、敏感文档或未脱敏的网络信息。
+For device-specific problems, open a [GitHub issue](https://github.com/johnbitcn/GoScanner/issues) with the device model, system and package versions, command, error details, and sanitized `discover` / `info` output. Do not include job tokens, sensitive documents, or unsanitized network information.
 
-## 配置文件
+## Configuration files
 
-无需先编写配置即可使用。通过 TUI 选择设备，程序验证成功后以 `device.record_id` 保存默认选择。协议和地址由设备列表维护，不需要手工填写或同步。
+No initial configuration file is required. Select a device in the TUI. After successful validation, the program saves its default reference as `device.record_id`. The device registry maintains protocol and address details; you do not need to enter or synchronize them manually.
 
-| 文件                              | 用途                                                         |
-| --------------------------------- | ------------------------------------------------------------ |
-| `~/.config/goscanner/config.json` | 默认设备引用、扫描参数、输出目录与格式、AI 开关                  |
-| `~/.config/goscanner/drives.json` | 设备身份、各协议地址、首选协议及历史能力快照；不代表当前就绪 |
+| File | Purpose |
+| --- | --- |
+| `~/.config/goscanner/config.json` | Interface language, default scanner reference, scan options, output directory and format, and AI switches |
+| `~/.config/goscanner/drives.json` | Device identities, protocol addresses, preferences, and historical capability snapshots; not proof of current readiness |
 
-只需填写要修改的设置。例如，将默认输出改为指定目录中的 PDF：
+Specify only the settings you want to change. For example, save PDFs to a chosen directory by default:
 
 ```json
 {
@@ -230,10 +232,10 @@ Ctrl+C 或 SIGTERM 会尝试取消本客户端已知编号的任务；若创建�
 }
 ```
 
-已有配置时只修改相应字段，不要用此示例覆盖整个文件。扫描设置遵循 **显式命令行参数 > 配置文件 > 内置默认值**；TUI 设置页选择“保存并应用”后会持久保存可见设置，Esc 放弃不保存；Agent 不写配置或设备表。
+Modify only the required fields in an existing configuration; do not overwrite it with this example. Scan settings follow **explicit command-line options > configuration > built-in defaults**. “Save and apply” in TUI settings persists visible values; Esc discards them. Agent mode does not write configuration or the device registry.
 
-完整字段、目录解析和引用错误处理见[配置](docs/configuration.md)。协议、身份合并、HTTPS 证书及网络限制见 [eSCL 与 WSD](docs/escl.md)。源码与 AI 运行环境见[构建文档](docs/build.md)。
+See [Configuration (Chinese)](docs/configuration.md) for all fields, directory expansion, and reference errors; [eSCL and WSD (Chinese)](docs/escl.md) for protocols, identity merging, HTTPS certificates, and network restrictions; and [Build from source (Chinese)](docs/build.md) for source builds and the AI runtime environment.
 
-## 开源协议
+## License
 
-本项目原创代码采用 [Apache License 2.0](LICENSE)。第三方库和 AI 模型保留各自许可证；npm 包中的许可证与声明位于 `runtime/licenses/`，来源与分发说明见 [npm 文档](docs/npm.md#固定构建输入与许可)。
+Original project code is licensed under the [Apache License 2.0](LICENSE). Third-party libraries and AI models retain their own licenses. The npm package includes license texts and notices in `runtime/licenses/`. See [npm documentation (Chinese)](docs/npm.md#固定构建输入与许可) for source and distribution details.

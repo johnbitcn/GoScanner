@@ -24,7 +24,7 @@ test('project declares Apache-2.0 and includes the complete license in its publi
 test('README and configuration documentation links exist and are included in the package', () => {
   const root = path.resolve(__dirname, '..');
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json')));
-  for (const document of ['README.md', 'docs/configuration.md', 'docs/configuration-compatibility.md', 'docs/escl.md', 'docs/interfaces.md']) {
+  for (const document of ['README.md', 'README-CN.md', 'docs/configuration.md', 'docs/configuration-compatibility.md', 'docs/escl.md', 'docs/interfaces.md']) {
     const markdown = fs.readFileSync(path.join(root, document), 'utf8');
     for (const [, link] of markdown.matchAll(/!?\[[^\]]*\]\(([^)\s]+)\)/g)) {
       if (/^https?:\/\//.test(link) || link.startsWith('#')) continue;
@@ -34,6 +34,25 @@ test('README and configuration documentation links exist and are included in the
         `${document} target is not shipped: ${target}`);
     }
   }
+});
+
+test('English is the default README and both languages have navigation and matching examples', () => {
+  const root = path.resolve(__dirname, '..');
+  const english = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+  const chinese = fs.readFileSync(path.join(root, 'README-CN.md'), 'utf8');
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json')));
+  const navigation = '[English](README.md) | [简体中文](README-CN.md)';
+  for (const [name, markdown] of [['README.md', english], ['README-CN.md', chinese]]) {
+    assert.equal(markdown.split('\n')[0], navigation, `${name} language navigation`);
+    assert(pkg.files.includes(name), `${name} is not shipped`);
+  }
+  assert.match(english, /^## Introduction$/m);
+  assert.match(chinese, /^## 简介$/m);
+  const examples = (markdown) => [...markdown.matchAll(/```(?:bash|json)\n([\s\S]*?)\n```/g)]
+    .map(([, block]) => block.split('\n').filter((line) => !line.trimStart().startsWith('#')).join('\n').trim());
+  assert.deepEqual(examples(english), examples(chinese), 'Translations must preserve commands and JSON examples');
+  const media = (markdown) => [...markdown.matchAll(/src="([^"]+)"/g)].map(([, src]) => src);
+  assert.deepEqual(media(english), media(chinese), 'Translations must preserve embedded media');
 });
 
 function fixture(t) {

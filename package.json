@@ -25,6 +25,8 @@
   },
   "files": [
     "LICENSE",
+    "README.md",
+    "README-CN.md",
     "runtime/",
     "npm/cli.cjs",
     "npm/check-runtime.cjs",
