@@ -2,6 +2,7 @@ package main
 
 // Keys are source templates, never formatted output or external data.
 var humanEnglish = map[string]string{
+	"显示版本号并退出，不读取配置或访问设备": "Show the version and exit without reading configuration or accessing scanners",
 	"界面主题": "Interface theme",
 	"自动":   "Automatic",
 	"浅色背景": "Light background",

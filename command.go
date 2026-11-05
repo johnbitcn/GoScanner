@@ -43,6 +43,7 @@ type commandResult struct {
 	Processing []pageProcessing `json:"processing,omitempty"`
 	Error      *commandError    `json:"error,omitempty"`
 	Help       string           `json:"help,omitempty"`
+	Version    string           `json:"version,omitempty"`
 }
 
 type pageProcessing struct {

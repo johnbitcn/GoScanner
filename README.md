@@ -34,6 +34,15 @@ The registered preferred protocol is used by default. eSCL is preferred when bot
 
 ## Command reference
 
+### View the version
+
+```bash
+goscanner --version
+goscanner -v
+```
+
+Both commands print the version number and exit. The version is embedded from `package.json` at build time; no source files, user configuration, scanner connection, or AI models are needed at runtime. Agent callers can use `goscanner --agent --version` to receive a JSON object with `status` and `version`.
+
 ### View help
 
 ```bash

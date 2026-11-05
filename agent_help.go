@@ -16,6 +16,7 @@ func agentHelpContent(command string) (string, []helpSection) {
 				{"--agent", "Noninteractive JSON output. Must precede the command.", ""},
 				{"--lang LANG", "Human interface language: auto, en, or zh-CN. Agent output remains English.", "auto"},
 				{"--theme MODE", "TUI theme: auto, light, or dark. Overrides configuration. Auto falls back to dark. Does not affect Agent output.", "auto"},
+				{"-v, --version", "Show the version and exit without reading configuration or accessing scanners. Agent mode returns JSON.", ""},
 				{"-h, --help", "Show help without reading configuration or accessing scanners.", ""},
 			}},
 			{"Configuration", []helpItem{{text: "~/.config/goscanner/config.json"}}},

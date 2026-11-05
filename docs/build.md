@@ -6,7 +6,7 @@
 
 **npm 用户不需要执行本节的依赖准备。** npm 命令自动定位包内运行库和模型；以下步骤仅用于源码构建。显式设置的 `GOSCANNER_MODEL_PATH`、`GOSCANNER_ONNXRUNTIME_PATH` 仍优先于包内路径。
 
-源码最低 Go 版本为 1.26；构建需要 OpenCV 4.13、GoCV 0.43 和 CGO。设置 `PKG_CONFIG_PATH` 指向 OpenCV 的 `lib/pkgconfig`。本机路径见下方命令；其他平台须自行安装兼容的 OpenCV。
+源码最低 Go 版本为 1.26；构建需要 OpenCV 4.13、GoCV 0.43 和 CGO。版本号从构建目录的 `package.json` 嵌入，不需要额外的 `-ldflags`；修改版本号后须重新构建。可用 `--version` 或 `-v` 核对二进制版本。设置 `PKG_CONFIG_PATH` 指向 OpenCV 的 `lib/pkgconfig`。本机路径见下方命令；其他平台须自行安装兼容的 OpenCV。
 
 启用 `--deskew` 或 `--autocrop` 前，将 [DocsaidLab DocAligner](https://github.com/DocsaidLab/DocAligner) 官方 heatmap 模型（[下载来源](https://drive.google.com/file/d/14vUH77v6yGg7zFctUgcT6BzV5Iisg4Dl/view)）的 `fastvit_sa24_h_e_bifpn_256_fp32.onnx` 放到 `~/.local/share/goscanner/models/`，并将 ONNX Runtime 1.31.1 共享库放到 `~/.local/opt/goscanner/onnxruntime-1.31.1/lib/`（macOS 文件名 `libonnxruntime.1.31.1.dylib`，Linux 为 `libonnxruntime.so.1.31.1`）。模型 SHA256 必须为 `7f9f5a8935b2eb22b3ee0245d34996063f54562df390d34714af2d76928695bc`。可分别用 `GOSCANNER_MODEL_PATH` 和 `GOSCANNER_ONNXRUNTIME_PATH` 覆盖完整路径。程序不会下载模型、联网推理或上传图像；创建扫描任务前检查模型、库和会话。默认不启用 AI，查询或发现不加载模型。
 

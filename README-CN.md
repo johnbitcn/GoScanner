@@ -34,6 +34,15 @@ npm install -g @codingbone/goscanner
 
 ## 命令详解
 
+### 查看版本号
+
+```bash
+goscanner --version
+goscanner -v
+```
+
+两种写法均输出版本号并退出。版本号在构建时从 `package.json` 嵌入；运行时不需要源码文件，不读取用户配置、不连接扫描仪，也不加载 AI 模型。Agent 可使用 `goscanner --agent --version`，获取包含 `status` 和 `version` 的 JSON 对象。
+
 ### 查看帮助
 
 ```bash

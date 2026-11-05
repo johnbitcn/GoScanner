@@ -8,8 +8,14 @@
 | `goscanner scan/info/discover`，标准输入和输出均为终端 | 打开对应任务的内联 TUI |
 | 标准输入或输出不是终端，或 `TERM=dumb` | 保留原有无颜色输出；无子命令时显示帮助 |
 | `goscanner --agent <子命令>` | 无交互执行，结束时输出一个 JSON 对象 |
+| `goscanner --version` 或 `goscanner -v` | 输出构建时嵌入的版本号并退出；不读取用户配置、不连接设备、不进入 TUI |
+| `goscanner --agent --version` 或 `goscanner --agent -v` | 输出 `{"status":"ok","version":"…"}` 并退出 |
 
 `--agent` 必须在子命令前。不会因为输出进入管道而隐式启用 Agent 协议。
+
+## 版本号
+
+`version.go` 将构建目录的 `package.json` 嵌入可执行文件，版本号不单独维护、不依赖当前工作目录或运行时的 `package.json`。版本参数放在子命令位置使用，不与 `scan`、`info`、`discover` 同时调用；可在其前指定全局 `--lang` 或 `--theme`。查询成功只输出版本号及换行，Agent 模式保持 JSON。内置元数据无效时退出码为 1，Agent 错误码为 `version_unavailable`；stdout 写入失败同样返回 1。
 
 ## 语言契约
 

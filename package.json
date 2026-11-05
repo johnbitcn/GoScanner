@@ -1,6 +1,6 @@
 {
   "name": "@codingbone/goscanner",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Precompiled macOS Apple Silicon eSCL/WSD scanner with bundled OpenCV, ONNX Runtime and DocAligner.",
   "license": "Apache-2.0",
   "repository": {

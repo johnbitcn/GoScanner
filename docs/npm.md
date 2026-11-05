@@ -48,7 +48,7 @@ OpenCV 的非系统依赖必须全部落在包内。构建脚本将 Mach-O 加�
 
 另外随包复制 OpenCV 许可证、其安装生成的第三方声明，以及所有实际链接的 Go 模块和 Go 运行时许可证。修改 Mach-O 加载路径属于分发改动；权重不修改，许可证不删除。更新依赖时必须重新核对来源、版本、校验值、声明及使用条件，不把本项目的许可自动套用于第三方权重。
 
-本项目原创代码采用 [Apache License 2.0](../LICENSE)，`package.json` 声明 `Apache-2.0`，完整许可证随 npm 包放在根目录。第三方库和模型保留各自的许可证与声明，不统一改标为本项目许可证。npm 包名为 `@codingbone/goscanner`，当前源码版本为 `0.2.0`；GitHub 用户名不代表 npm scope 所有权。正式公开发布前，发布者仍应确认 scope 权限及分发许可。添加许可证前生成的旧 tarball 不包含本项目许可文件，应重新运行 Actions，验收并发布新的产物。
+本项目原创代码采用 [Apache License 2.0](../LICENSE)，`package.json` 声明 `Apache-2.0`，完整许可证随 npm 包放在根目录。第三方库和模型保留各自的许可证与声明，不统一改标为本项目许可证。npm 包名为 `@codingbone/goscanner`，当前源码版本为 `0.2.1`；GitHub 用户名不代表 npm scope 所有权。正式公开发布前，发布者仍应确认 scope 权限及分发许可。添加许可证前生成的旧 tarball 不包含本项目许可文件，应重新运行 Actions，验收并发布新的产物。
 
 ## Actions：构建、验收与可信发布
 
@@ -79,8 +79,8 @@ node scripts/verify-npm.cjs
 下载归档、OpenCV 源码及安装目录位于 `.build/`；生成的运行包位于 `runtime/`；最终文件位于：
 
 ```text
-dist/codingbone-goscanner-0.2.0.tgz
-dist/codingbone-goscanner-0.2.0.tgz.sha256
+dist/codingbone-goscanner-0.2.1.tgz
+dist/codingbone-goscanner-0.2.1.tgz.sha256
 dist/verification.json
 ```
 
@@ -91,7 +91,7 @@ dist/verification.json
 1. 检查运行包文件清单、SHA256、平台信息和不存在安装钩子。
 2. 使用 Node-only PATH、空 HOME、独立 npm 配置及缓存，离线安装 tarball，并禁用所有安装脚本。确认安装后的包声明 `Apache-2.0`，且根目录 `LICENSE` 与源码仓库中的完整许可证一致。
 3. 从安装后的 npm bin 链接调用程序，对环回地址的模拟 WSD 服务分别执行普通扫描和 AI 扫描，解码生成图像。测试图像是合成数据，不使用真实扫描仪。
-4. 临时移走本次构建的 OpenCV 安装目录。在移位安装的包中测试帮助和真实模型推理预检；之后只让环回服务返回 HTTP 500，确认不发布图像。不把这一步称为完整扫描成功。
+4. 临时移走本次构建的 OpenCV 安装目录。在移位安装的包中核对 `--version`、`-v` 和 Agent JSON 版本均与包元数据一致，测试帮助和真实模型推理预检；之后只让环回服务返回 HTTP 500，确认不发布图像。不把这一步称为完整扫描成功。
 5. 在 `finally` 中恢复构建目录并删除临时测试安装，输出校验文件和验证记录。
 
 如果强制终止验证进程，`.build/opencv-install.verification-hidden` 可能尚未恢复。确认没有验证进程运行且原路径不存在后，将其改回 `.build/opencv-install`。不要在验证过程中同时运行构建脚本。
@@ -102,7 +102,7 @@ dist/verification.json
 
 - **发布只在 GitHub Actions 中执行。** 使用 npm Trusted Publishing（OIDC），不要求本机 `npm login`，不使用长期 `NPM_TOKEN` 或 `NODE_AUTH_TOKEN`。
 - npm 包为 `@codingbone/goscanner`，GitHub 仓库为 `johnbitcn/GoScanner`。两者不是同一账户命名空间。
-- 手动运行工作流只构建与验收，不发布。只有推送与 `package.json` 完全匹配的稳定版本标签（如 `v0.2.0`）才进入发布流程。
+- 手动运行工作流只构建与验收，不发布。只有推送与 `package.json` 完全匹配的稳定版本标签（如 `v0.2.1`）才进入发布流程。
 - 每个正式 npm 版本都必须在 GitHub 保留对应的附注标签 `v<package.json.version>`。先推送 `main`，再推送标签；不得只发布 npm 而遗漏 GitHub tag，也不得移动或覆盖已有标签。
 - 标签提交必须已进入远程 `main`。工作流会拒绝其他仓库、错误事件、版本不匹配、无法确认 registry 状态或已经发布的版本。
 - 构建和发布分为两个 job。只有发布 job 获得 `id-token: write`；它下载同一次运行的原始 tarball，重新检查 SHA256、包元数据、项目 LICENSE、manifest 与验收记录，不能重新打包后发布。
@@ -183,7 +183,7 @@ npm view @codingbone/goscanner dist-tags --json
 从对应 Actions run 下载 artifact 并解压。文件位于 `dist/`，运行时清单位于 `runtime/manifest.json`。进入 `dist/` 后核对 SHA256：
 
 ```bash
-version="0.2.0"  # 必须与本次源码和 tarball 一致
+version="0.2.1"  # 必须与本次源码和 tarball 一致
 archive="codingbone-goscanner-${version}.tgz"
 shasum -a 256 -c "${archive}.sha256"
 destination="$(mktemp -d)"

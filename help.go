@@ -161,6 +161,7 @@ func helpContent(command string, lang language) (string, []helpSection) {
 				{"--agent", "无交互模式，输出 JSON；必须放在命令前", ""},
 				{"--lang LANG", "人类界面语言：auto、en 或 zh-CN；覆盖配置 language；auto 直接检测系统语言。Agent 输出始终使用英文。", "配置或系统语言"},
 				{"--theme MODE", "界面主题：auto、light 或 dark；启动参数优先于配置 theme；自动检测失败时使用深色主题。", "auto"},
+				{"-v, --version", "显示版本号并退出，不读取配置或访问设备", ""},
 				{"-h, --help", "显示帮助", ""},
 			}},
 			{"配置", []helpItem{{text: "~/.config/goscanner/config.json"}}},

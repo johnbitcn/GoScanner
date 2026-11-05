@@ -227,18 +227,28 @@ func runWithDiscovery(parent context.Context, args []string, stdout, stderr io.W
 		args = args[1:]
 	}
 	lang := automaticLanguage()
-	if !agent {
-		lang = configuredLanguage()
-	}
 	args, rootTheme, themeErr := leadingTheme(args)
 	args, lang, languageExplicit, languageErr := leadingLanguage(args, lang)
 	if languageErr == nil {
 		languageErr = themeErr
 	}
+	versionRequested := len(args) == 1 && (args[0] == "--version" || args[0] == "-v")
+	if !agent && !languageExplicit && !versionRequested {
+		lang = configuredLanguage()
+	}
 	if languageErr != nil {
 		result := commandResult{Status: "ok"}
 		result.fail("invalid_arguments", languageErr)
 		return writeResult(stdout, stderr, result, 2, agent, lang)
+	}
+	if versionRequested {
+		version, err := applicationVersion()
+		result, code := commandResult{Status: "ok", Version: version}, 0
+		if err != nil {
+			result.fail("version_unavailable", err)
+			code = 1
+		}
+		return writeResult(stdout, stderr, result, code, agent, lang)
 	}
 	humanTUI := !agent && interactiveOutput(stdout)
 	if len(args) == 0 && humanTUI {
@@ -316,6 +326,8 @@ func writeResult(stdout, stderr io.Writer, result commandResult, code int, agent
 		err = json.NewEncoder(stdout).Encode(result)
 	} else if result.Help != "" {
 		_, err = fmt.Fprint(stdout, result.Help)
+	} else if result.Version != "" {
+		_, err = fmt.Fprintln(stdout, result.Version)
 	} else if result.Error != nil {
 		_, err = fmt.Fprintln(stderr, lang.commandError(result.Error))
 	}

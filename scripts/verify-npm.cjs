@@ -20,6 +20,11 @@ function command(file, args, options = {}) {
 }
 
 async function smoke(cli, env, directory) {
+  const version = require('../package.json').version;
+  for (const flag of ['--version', '-v']) {
+    assert.equal(command(cli, [flag], { env, cwd: directory }), version + '\n');
+  }
+  assert.deepEqual(JSON.parse(command(cli, ['--agent', '--version'], { env, cwd: directory })), { status: 'ok', version });
   const help = command(cli, ['--help'], { env, cwd: directory });
   assert.match(help, /GoScanner/);
   let requests = 0;
@@ -56,7 +61,7 @@ async function smoke(cli, env, directory) {
     assert.match(output, /Checking capabilities and scanning/, output);
     assert.match(output, /500/, output);
     assert(!fs.existsSync(path.join(directory, 'smoke.jpg')), 'Failed scan must not publish an image');
-    console.log('Isolated CLI help and packaged-model inference preflight passed.');
+    console.log('Isolated CLI version, help and packaged-model inference preflight passed.');
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -105,7 +110,8 @@ async function main() {
       package: pkg.name, version: pkg.version, platform: process.platform, arch: process.arch,
       testedKernel: os.release(), node: process.version, compressedBytes: packed.size, unpackedBytes: packed.unpackedSize,
       checks: ['runtime SHA256 inventory', 'Apache-2.0 metadata and complete project LICENSE', 'offline npm install with scripts disabled and Node-only PATH',
-        'installed CLI ordinary and AI scans against loopback scanner', 'help and AI inference preflight with build libraries hidden'],
+        'installed CLI ordinary and AI scans against loopback scanner', 'help and AI inference preflight with build libraries hidden',
+        'installed CLI version matches package metadata'],
       limitations: ['No physical scanner test', 'Minimum macOS 14 compatibility needs a macOS 14 test host', 'No Developer ID signing or notarization'],
     }, null, 2) + '\n');
     console.log(`Verified npm artifact: ${archive} (${packed.size} compressed bytes)`);
