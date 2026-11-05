@@ -64,7 +64,7 @@ func TestNpmBundleScan(t *testing.T) {
 	for _, ai := range []bool{false, true} {
 		t.Run(map[bool]string{false: "ordinary", true: "ai"}[ai], func(t *testing.T) {
 			directory := t.TempDir()
-			args := []string{"scan", "--host", endpoint.Hostname(), "--port", endpoint.Port(), "-o", "scan.jpg"}
+			args := []string{"scan", "--lang=en", "--host", endpoint.Hostname(), "--port", endpoint.Port(), "-o", "scan.jpg"}
 			if ai {
 				args = append(args, "--deskew", "--autocrop")
 			}

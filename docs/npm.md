@@ -48,7 +48,7 @@ OpenCV 的非系统依赖必须全部落在包内。构建脚本将 Mach-O 加�
 
 另外随包复制 OpenCV 许可证、其安装生成的第三方声明，以及所有实际链接的 Go 模块和 Go 运行时许可证。修改 Mach-O 加载路径属于分发改动；权重不修改，许可证不删除。更新依赖时必须重新核对来源、版本、校验值、声明及使用条件，不把本项目的许可自动套用于第三方权重。
 
-本项目原创代码采用 [Apache License 2.0](../LICENSE)，`package.json` 声明 `Apache-2.0`，完整许可证随 npm 包放在根目录。第三方库和模型保留各自的许可证与声明，不统一改标为本项目许可证。npm 包名为 `@codingbone/goscanner`，当前源码版本为 `0.1.1`；GitHub 用户名不代表 npm scope 所有权。正式公开发布前，发布者仍应确认 scope 权限及分发许可。添加许可证前生成的旧 tarball 不包含本项目许可文件，应重新运行 Actions，验收并发布新的产物。
+本项目原创代码采用 [Apache License 2.0](../LICENSE)，`package.json` 声明 `Apache-2.0`，完整许可证随 npm 包放在根目录。第三方库和模型保留各自的许可证与声明，不统一改标为本项目许可证。npm 包名为 `@codingbone/goscanner`，当前源码版本为 `0.2.0`；GitHub 用户名不代表 npm scope 所有权。正式公开发布前，发布者仍应确认 scope 权限及分发许可。添加许可证前生成的旧 tarball 不包含本项目许可文件，应重新运行 Actions，验收并发布新的产物。
 
 ## Actions：构建、验收与可信发布
 
@@ -79,8 +79,8 @@ node scripts/verify-npm.cjs
 下载归档、OpenCV 源码及安装目录位于 `.build/`；生成的运行包位于 `runtime/`；最终文件位于：
 
 ```text
-dist/codingbone-goscanner-0.1.1.tgz
-dist/codingbone-goscanner-0.1.1.tgz.sha256
+dist/codingbone-goscanner-0.2.0.tgz
+dist/codingbone-goscanner-0.2.0.tgz.sha256
 dist/verification.json
 ```
 
@@ -102,7 +102,8 @@ dist/verification.json
 
 - **发布只在 GitHub Actions 中执行。** 使用 npm Trusted Publishing（OIDC），不要求本机 `npm login`，不使用长期 `NPM_TOKEN` 或 `NODE_AUTH_TOKEN`。
 - npm 包为 `@codingbone/goscanner`，GitHub 仓库为 `johnbitcn/GoScanner`。两者不是同一账户命名空间。
-- 手动运行工作流只构建与验收，不发布。只有推送与 `package.json` 完全匹配的稳定版本标签（如 `v0.1.1`）才进入发布流程。
+- 手动运行工作流只构建与验收，不发布。只有推送与 `package.json` 完全匹配的稳定版本标签（如 `v0.2.0`）才进入发布流程。
+- 每个正式 npm 版本都必须在 GitHub 保留对应的附注标签 `v<package.json.version>`。先推送 `main`，再推送标签；不得只发布 npm 而遗漏 GitHub tag，也不得移动或覆盖已有标签。
 - 标签提交必须已进入远程 `main`。工作流会拒绝其他仓库、错误事件、版本不匹配、无法确认 registry 状态或已经发布的版本。
 - 构建和发布分为两个 job。只有发布 job 获得 `id-token: write`；它下载同一次运行的原始 tarball，重新检查 SHA256、包元数据、项目 LICENSE、manifest 与验收记录，不能重新打包后发布。
 - 发布使用 Node.js 24、固定的 npm 11.21.1 和 provenance。结束后从 registry 核对精确版本、原始 tarball 的 integrity／SHA1 及 `latest`。版本与标签可能延迟可见：核验禁用读取缓存，最多检查 30 次，间隔 10 秒；这只重试读取，不重试 `npm publish`。每次请求另有 30 秒超时，发布 job 总超时为 10 分钟。
@@ -182,7 +183,7 @@ npm view @codingbone/goscanner dist-tags --json
 从对应 Actions run 下载 artifact 并解压。文件位于 `dist/`，运行时清单位于 `runtime/manifest.json`。进入 `dist/` 后核对 SHA256：
 
 ```bash
-version="0.1.1"  # 必须与本次源码和 tarball 一致
+version="0.2.0"  # 必须与本次源码和 tarball 一致
 archive="codingbone-goscanner-${version}.tgz"
 shasum -a 256 -c "${archive}.sha256"
 destination="$(mktemp -d)"

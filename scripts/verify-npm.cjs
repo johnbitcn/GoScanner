@@ -39,7 +39,7 @@ async function smoke(cli, env, directory) {
     server.listen(0, '127.0.0.1', resolve);
   });
   try {
-    const child = spawn(cli, ['scan', '--host', '127.0.0.1', '--port', String(server.address().port),
+    const child = spawn(cli, ['scan', '--lang=en', '--host', '127.0.0.1', '--port', String(server.address().port),
       '--deskew', '--autocrop', '--timeout', '10s', '-o', 'smoke.jpg'], { env, cwd: directory });
     let output = '';
     child.stdout.on('data', (data) => { output += data; });
@@ -53,7 +53,7 @@ async function smoke(cli, env, directory) {
     assert.equal(requests, 1, output);
     assert.equal(requestError, undefined);
     // scanPages constructs the processor and runs ONNX preflight before querying the scanner.
-    assert.match(output, /检查能力并扫描/, output);
+    assert.match(output, /Checking capabilities and scanning/, output);
     assert.match(output, /500/, output);
     assert(!fs.existsSync(path.join(directory, 'smoke.jpg')), 'Failed scan must not publish an image');
     console.log('Isolated CLI help and packaged-model inference preflight passed.');
