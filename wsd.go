@@ -76,26 +76,74 @@ func escape(s string) string {
 	return b.String()
 }
 
-func soapEnvelope(data []byte) (*element, error) {
-	if len(data) > maxXML || bytes.Contains(bytes.ToUpper(data), []byte("<!DOCTYPE")) {
-		return nil, errors.New("SOAP XML 超出限制或包含 DOCTYPE")
+// parseXML bounds the tree before building it; both protocols consume untrusted XML.
+func parseXML(data []byte) (*element, error) {
+	if len(data) > maxXML {
+		return nil, errors.New("XML 超出大小限制")
 	}
-	var root element
 	d := xml.NewDecoder(bytes.NewReader(data))
-	if err := d.Decode(&root); err != nil {
-		return nil, errors.New("无效的 SOAP XML")
+	var root *element
+	type frame struct {
+		node *element
+		text []byte
 	}
+	var stack []frame
+	count := 0
 	for {
 		token, err := d.Token()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			return nil, errors.New("SOAP XML 结尾无效")
+			return nil, errors.New("无效的 XML")
 		}
-		if text, ok := token.(xml.CharData); !ok || len(bytes.TrimSpace(text)) != 0 {
-			return nil, errors.New("SOAP XML 包含多余内容")
+		switch t := token.(type) {
+		case xml.StartElement:
+			count++
+			if len(stack) >= 64 || count > 10000 {
+				return nil, errors.New("XML 深度或元素数量超限")
+			}
+			node := &element{XMLName: t.Name, Attrs: t.Attr}
+			if len(stack) == 0 {
+				if root != nil {
+					return nil, errors.New("XML 包含多余内容")
+				}
+				root = node
+			} else {
+				parent := stack[len(stack)-1].node
+				parent.Children = append(parent.Children, *node)
+				node = &parent.Children[len(parent.Children)-1]
+			}
+			stack = append(stack, frame{node: node})
+		case xml.EndElement:
+			f := stack[len(stack)-1]
+			f.node.Text = string(f.text)
+			stack = stack[:len(stack)-1]
+		case xml.CharData:
+			if len(stack) > 0 {
+				f := &stack[len(stack)-1]
+				f.text = append(f.text, t...)
+			} else if len(bytes.TrimSpace(t)) != 0 {
+				return nil, errors.New("XML 包含多余内容")
+			}
+		case xml.Directive:
+			return nil, errors.New("XML 不允许 DOCTYPE 或指令")
+		case xml.ProcInst, xml.Comment:
+			if root != nil && len(stack) == 0 {
+				return nil, errors.New("XML 包含多余内容")
+			}
 		}
+	}
+	if root == nil || len(stack) != 0 {
+		return nil, errors.New("XML 不完整")
+	}
+	return root, nil
+}
+
+func soapEnvelope(data []byte) (*element, error) {
+	root, err := parseXML(data)
+	if err != nil {
+		return nil, err
 	}
 	if root.XMLName != (xml.Name{Space: soapNS, Local: "Envelope"}) {
 		return nil, errors.New("SOAP Envelope 命名空间无效")
@@ -110,7 +158,7 @@ func soapEnvelope(data []byte) (*element, error) {
 		}
 		return nil, fmt.Errorf("WSD 错误：%s", message)
 	}
-	return &root, nil
+	return root, nil
 }
 
 func soapResponse(data []byte, name string) (*element, error) {
@@ -126,8 +174,11 @@ func soapResponse(data []byte, name string) (*element, error) {
 }
 
 type client struct {
-	endpoint string
-	http     *http.Client
+	expectedDevice *scannerDevice
+	beforeScan     func(context.Context, info) error
+	protocol       string
+	endpoint       string
+	http           *http.Client
 }
 
 func newClient(host string) (*client, error) {
@@ -173,7 +224,24 @@ func checkedEndpoint(raw string, peer netip.Addr) (string, error) {
 }
 
 func newEndpointClient(raw string) (*client, error) {
-	endpoint, err := checkedEndpoint(raw, netip.Addr{})
+	return newProtocolClient(raw, "wsd")
+}
+
+func newProtocolClient(raw, protocol string) (*client, error) {
+	protocol = strings.ToLower(protocol)
+	if protocol == "" {
+		protocol = "wsd"
+	}
+	var endpoint string
+	var err error
+	switch protocol {
+	case "wsd":
+		endpoint, err = checkedEndpoint(raw, netip.Addr{})
+	case "escl":
+		endpoint, err = checkedESCLEndpoint(raw)
+	default:
+		return nil, fmt.Errorf("不支持的扫描协议 %q", protocol)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -185,6 +253,7 @@ func newEndpointClient(raw string) (*client, error) {
 	}
 	return &client{
 		endpoint: endpoint,
+		protocol: protocol,
 		http: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		}},
@@ -253,14 +322,18 @@ type size struct {
 }
 
 type info struct {
-	State      string   `json:"state"`
-	Formats    []string `json:"formats"`
-	Colors     []string `json:"colors"`
-	WidthsDPI  []int    `json:"widths_dpi"`
-	HeightsDPI []int    `json:"heights_dpi"`
-	MinSize    size     `json:"min_size"`
-	MaxSize    size     `json:"max_size"`
-	SizeUnit   string   `json:"size_unit"`
+	UUID         string `json:"uuid,omitempty"`
+	SerialNumber string `json:"serial_number,omitempty"`
+	MakeAndModel string `json:"make_and_model,omitempty"`
+	escl         *esclCapabilities
+	State        string   `json:"state"`
+	Formats      []string `json:"formats"`
+	Colors       []string `json:"colors"`
+	WidthsDPI    []int    `json:"widths_dpi"`
+	HeightsDPI   []int    `json:"heights_dpi"`
+	MinSize      size     `json:"min_size"`
+	MaxSize      size     `json:"max_size"`
+	SizeUnit     string   `json:"size_unit"`
 }
 
 func positive(node *element) (int, error) {
@@ -354,9 +427,19 @@ func parseInfo(data []byte) (info, error) {
 }
 
 func (c *client) info(ctx context.Context) (info, error) {
-	_, data, err := c.post(ctx, "GetScannerElements", `<w:GetScannerElementsRequest><w:RequestedElements><w:Name>w:ScannerConfiguration</w:Name><w:Name>w:ScannerStatus</w:Name></w:RequestedElements></w:GetScannerElementsRequest>`)
-	if err != nil {
-		return info{}, err
+	var cap info
+	var err error
+	if c.protocol == "escl" {
+		cap, err = c.esclInfo(ctx)
+	} else {
+		_, data, queryErr := c.post(ctx, "GetScannerElements", `<w:GetScannerElementsRequest><w:RequestedElements><w:Name>w:ScannerConfiguration</w:Name><w:Name>w:ScannerStatus</w:Name></w:RequestedElements></w:GetScannerElementsRequest>`)
+		err = queryErr
+		if err == nil {
+			cap, err = parseInfo(data)
+		}
 	}
-	return parseInfo(data)
+	if err == nil {
+		err = checkScannerIdentity(c.expectedDevice, cap, c.protocol, c.endpoint)
+	}
+	return cap, err
 }

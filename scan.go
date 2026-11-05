@@ -71,6 +71,9 @@ func parseArea(text string) (region, error) {
 }
 
 func ticket(cap info, opts options) (string, error) {
+	if cap.escl != nil {
+		return esclTicket(cap, opts)
+	}
 	if cap.State != "Idle" {
 		return "", fmt.Errorf("扫描器尚未就绪：%s", cap.State)
 	}
@@ -108,12 +111,77 @@ func ticket(cap info, opts options) (string, error) {
 }
 
 func (c *client) cancel(ctx context.Context, id string) error {
+	if c.protocol == "escl" {
+		return c.esclCancel(ctx, id)
+	}
 	_, data, err := c.post(ctx, "CancelJob", `<w:CancelJobRequest><w:JobId>`+escape(id)+`</w:JobId></w:CancelJobRequest>`)
 	if err != nil {
 		return err
 	}
 	_, err = soapResponse(data, "CancelJobResponse")
 	return err
+}
+
+func (c *client) create(ctx context.Context, scanTicket string) (id, token string, err error) {
+	if c.protocol == "escl" {
+		id, err = c.esclCreate(ctx, scanTicket)
+		return id, "", err
+	}
+	_, data, err := c.post(ctx, "CreateScanJob", "<w:CreateScanJobRequest>"+scanTicket+"</w:CreateScanJobRequest>")
+	if err != nil {
+		return "", "", err
+	}
+	created, err := soapResponse(data, "CreateScanJobResponse")
+	if err != nil {
+		return "", "", err
+	}
+	if value := created.path("JobId").text(); value != "" {
+		if n, parseErr := strconv.ParseUint(value, 10, 32); parseErr == nil && n > 0 {
+			id = value
+		}
+	}
+	if node := created.path("JobToken"); node != nil {
+		token = node.Text // JobToken is opaque; preserve its whitespace.
+	}
+	if id == "" || strings.TrimSpace(token) == "" {
+		return id, token, errors.New("创建响应缺少有效的 JobId 或 JobToken")
+	}
+	return id, token, nil
+}
+
+func (c *client) retrieve(ctx context.Context, id, token, format string) ([]byte, error) {
+	if c.protocol == "escl" {
+		return c.esclRetrieve(ctx, id)
+	}
+	// HP firmware expects this fixed document name even when the requested format is TIFF.
+	request := `<w:RetrieveImageRequest><w:DocumentDescription><w:DocumentName>IMAGE000.JPG</w:DocumentName></w:DocumentDescription><w:JobId>` + escape(id) + `</w:JobId><w:JobToken>` + escape(token) + `</w:JobToken></w:RetrieveImageRequest>`
+	contentType, data, err := c.post(ctx, "RetrieveImage", request)
+	if err != nil {
+		return nil, err
+	}
+	return imageFromResponse(contentType, data, format)
+}
+
+// Use the same format negotiation for readiness checks and actual acquisition.
+func imageTicket(cap info, opts options, ext string) (string, options, error) {
+	opts.Format = formatJPEG
+	if ext == ".tif" || ext == ".tiff" || ext == ".png" {
+		opts.Format = formatTIFF
+	}
+	formats := []string{opts.Format}
+	if cap.escl != nil && ext == ".png" {
+		formats = []string{formatPNG, formatTIFF, formatJPEG}
+	}
+	var body string
+	var err error
+	for _, format := range formats {
+		opts.Format = format
+		body, err = ticket(cap, opts)
+		if err == nil {
+			return body, opts, nil
+		}
+	}
+	return "", opts, err
 }
 
 func (c *client) scan(ctx context.Context, opts options, output string) (result scanResult, err error) {
@@ -138,9 +206,18 @@ func (c *client) scan(ctx context.Context, opts options, output string) (result 
 	if err != nil {
 		return result, err
 	}
-	scanTicket, err := ticket(cap, opts)
+	scanTicket, opts, err := imageTicket(cap, opts, ext)
 	if err != nil {
 		return result, err
+	}
+	if c.beforeScan != nil {
+		if err = c.beforeScan(ctx, cap); err != nil {
+			return result, err
+		}
+	}
+	if c.protocol == "escl" && opts.originalPath != "" {
+		sourceExt := map[string]string{formatPNG: ".png", formatJPEG: ".jpg", formatTIFF: ".tiff"}[opts.Format]
+		opts.originalPath = strings.TrimSuffix(opts.originalPath, filepath.Ext(opts.originalPath)) + sourceExt
 	}
 	if err = os.MkdirAll(filepath.Dir(output), 0700); err != nil {
 		return result, err
@@ -182,32 +259,12 @@ func (c *client) scan(ctx context.Context, opts options, output string) (result 
 		}
 	}()
 
-	_, data, err := c.post(ctx, "CreateScanJob", "<w:CreateScanJobRequest>"+scanTicket+"</w:CreateScanJobRequest>")
+	var token string
+	jobID, token, err = c.create(ctx, scanTicket)
 	if err != nil {
 		return result, fmt.Errorf("创建任务结果未确认；不要立即重复扫描：%w", err)
 	}
-	created, err := soapResponse(data, "CreateScanJobResponse")
-	if err != nil {
-		return result, err
-	}
-	id := created.path("JobId").text()
-	if n, parseErr := strconv.ParseUint(id, 10, 32); parseErr == nil && n > 0 {
-		jobID = id
-	}
-	token := ""
-	if node := created.path("JobToken"); node != nil {
-		token = node.Text // JobToken is opaque; preserve its whitespace.
-	}
-	if jobID == "" || strings.TrimSpace(token) == "" {
-		return result, errors.New("创建响应缺少有效的 JobId 或 JobToken")
-	}
-	// HP firmware expects this fixed document name even when the requested format is TIFF.
-	request := `<w:RetrieveImageRequest><w:DocumentDescription><w:DocumentName>IMAGE000.JPG</w:DocumentName></w:DocumentDescription><w:JobId>` + escape(jobID) + `</w:JobId><w:JobToken>` + escape(token) + `</w:JobToken></w:RetrieveImageRequest>`
-	contentType, data, err := c.post(ctx, "RetrieveImage", request)
-	if err != nil {
-		return result, err
-	}
-	payload, err := imageFromResponse(contentType, data, opts.Format)
+	payload, err := c.retrieve(ctx, jobID, token, opts.Format)
 	if err != nil {
 		return result, err
 	}
@@ -215,6 +272,8 @@ func (c *client) scan(ctx context.Context, opts options, output string) (result 
 	wantFormat := "jpeg"
 	if opts.Format == formatTIFF {
 		wantFormat = "tiff"
+	} else if opts.Format == formatPNG {
+		wantFormat = "png"
 	}
 	if err != nil || sourceFormat != wantFormat || config.Width <= 0 || config.Height <= 0 || config.Width > 40_000_000/config.Height {
 		return result, errors.New("图像格式或尺寸无效，或超过 4000 万像素")
@@ -281,6 +340,15 @@ func (c *client) scan(ctx context.Context, opts options, output string) (result 
 	}
 	success = true
 	result.Bytes, result.Width, result.Height = int(stat.Size()), picture.Bounds().Dx(), picture.Bounds().Dy()
+	if c.protocol == "escl" {
+		// Publish first: cleanup failure must not destroy a successfully scanned page.
+		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if cleanupErr := c.cancel(cleanup, jobID); cleanupErr != nil {
+			result.retainedPath = output
+			return result, fmt.Errorf("扫描图像已保存至 %s；eSCL 任务清理失败，未自动重试扫描：%w", output, cleanupErr)
+		}
+	}
 	return result, nil
 }
 

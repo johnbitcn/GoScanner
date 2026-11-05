@@ -42,6 +42,14 @@ func TestHumanStatusAndSelectionColors(t *testing.T) {
 	}
 }
 
+func TestHumanCurrentProtocolIsOrange(t *testing.T) {
+	m := humanTestModel(t)
+	label := m.deviceLabel(m.request.endpoint, 40)
+	if !strings.Contains(label, "\x1b[38;5;208mWSD") || strings.Contains(ansi.Strip(label), "eSCL + WSD") {
+		t.Fatalf("protocol must be orange ANSI 208: %q", label)
+	}
+}
+
 func TestHumanOptionCheckboxes(t *testing.T) {
 	m := humanTestModel(t)
 	for _, state := range []string{"ready", "unavailable"} {

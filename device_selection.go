@@ -16,11 +16,11 @@ import (
 
 func chooseDevice(ctx context.Context, devices []scannerDevice, prompt io.Writer) (string, error) {
 	if len(devices) == 0 {
-		return "", errors.New("未发现 WSD 扫描仪；可唤醒设备后重试，或使用 --host 指定 IP")
+		return "", errors.New("未发现网络扫描仪；可唤醒设备后重试，或使用 --host 指定 IP")
 	}
-	fmt.Fprintln(prompt, "可用 WSD 扫描设备：")
+	fmt.Fprintln(prompt, "可用网络扫描设备：")
 	for i, device := range devices {
-		fmt.Fprintf(prompt, "%d) 名称 %q；型号 %q；地址 %q\n", i+1, device.Name, device.Model, device.Endpoint)
+		fmt.Fprintf(prompt, "%d) 名称 %q；型号 %q；协议 %s；首选 %s；地址 %q\n", i+1, device.Name, device.Model, scannerProtocolLabel(device), protocolName(device.Protocol), device.Endpoint)
 	}
 	keys, err := openKeyInput()
 	if err != nil {

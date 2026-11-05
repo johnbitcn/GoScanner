@@ -25,12 +25,17 @@ const (
 )
 
 type scannerDevice struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Model     string `json:"model"`
-	Protocol  string `json:"protocol"`
-	Endpoint  string `json:"endpoint"`
-	Interface string `json:"interface"`
+	RecordID          string            `json:"record_id,omitempty"`
+	ID                string            `json:"id"`
+	Name              string            `json:"name"`
+	Model             string            `json:"model"`
+	Protocol          string            `json:"protocol"`
+	PreferredProtocol string            `json:"preferred_protocol,omitempty"`
+	Endpoint          string            `json:"endpoint"`
+	Interface         string            `json:"interface"`
+	SerialNumber      string            `json:"serial_number,omitempty"`
+	CapabilityUUID    string            `json:"capability_uuid,omitempty"`
+	Endpoints         []scannerEndpoint `json:"endpoints,omitempty"`
 }
 
 type lanNetwork struct {
@@ -298,10 +303,13 @@ func metadataDevices(data []byte, source candidate) ([]scannerDevice, error) {
 	if err != nil {
 		return nil, err
 	}
-	var name, model string
+	var name, model, serial string
 	for _, section := range sections {
 		if v := section.node.child(profileNS, "ThisDevice").child(profileNS, "FriendlyName").text(); v != "" {
 			name = v
+		}
+		if v := section.node.child(profileNS, "ThisDevice").child(profileNS, "SerialNumber").text(); v != "" {
+			serial = v
 		}
 		if v := section.node.child(profileNS, "ThisModel").child(profileNS, "ModelName").text(); v != "" {
 			model = v
@@ -334,7 +342,7 @@ func metadataDevices(data []byte, source candidate) ([]scannerDevice, error) {
 			}
 			endpoint, err := checkedEndpoint(epr.child(addrNS, "Address").text(), source.peer)
 			if err == nil {
-				devices = append(devices, scannerDevice{source.id, name, model, "wsd", endpoint, source.iface})
+				devices = append(devices, scannerDevice{ID: source.id, Name: name, Model: model, Protocol: "wsd", Endpoint: endpoint, Interface: source.iface, SerialNumber: clean(serial)})
 			}
 		}
 	}
@@ -344,7 +352,7 @@ func metadataDevices(data []byte, source candidate) ([]scannerDevice, error) {
 	return devices, nil
 }
 
-func discover(ctx context.Context) ([]scannerDevice, []string, error) {
+func discoverWSD(ctx context.Context) ([]scannerDevice, []string, error) {
 	networks, err := localNetworks()
 	if err != nil {
 		return nil, nil, err

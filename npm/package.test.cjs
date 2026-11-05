@@ -21,16 +21,18 @@ test('project declares Apache-2.0 and includes the complete license in its publi
   assert.match(license, /END OF TERMS AND CONDITIONS/);
 });
 
-test('README local documentation and animation links exist and are included in the package', () => {
+test('README and configuration documentation links exist and are included in the package', () => {
   const root = path.resolve(__dirname, '..');
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json')));
-  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
-  for (const [, link] of readme.matchAll(/!?\[[^\]]*\]\(([^)\s]+)\)/g)) {
-    if (/^https?:\/\//.test(link) || link.startsWith('#')) continue;
-    const target = path.posix.normalize(link.split('#')[0]);
-    assert(fs.existsSync(path.join(root, target)), `Missing README target: ${target}`);
-    assert(pkg.files.some((entry) => entry.endsWith('/') ? target.startsWith(entry) : entry === target),
-      `README target is not shipped: ${target}`);
+  for (const document of ['README.md', 'docs/configuration.md', 'docs/configuration-compatibility.md', 'docs/escl.md', 'docs/interfaces.md']) {
+    const markdown = fs.readFileSync(path.join(root, document), 'utf8');
+    for (const [, link] of markdown.matchAll(/!?\[[^\]]*\]\(([^)\s]+)\)/g)) {
+      if (/^https?:\/\//.test(link) || link.startsWith('#')) continue;
+      const target = path.posix.normalize(path.posix.join(path.posix.dirname(document), link.split('#')[0]));
+      assert(fs.existsSync(path.join(root, target)), `Missing ${document} target: ${target}`);
+      assert(pkg.files.some((entry) => entry.endsWith('/') ? target.startsWith(entry) : entry === target),
+        `${document} target is not shipped: ${target}`);
+    }
   }
 });
 

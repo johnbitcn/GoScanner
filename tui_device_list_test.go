@@ -30,7 +30,7 @@ func TestHumanDeviceModelAndIPPresentation(t *testing.T) {
 	}
 	m.deviceCursor = len(m.drives)
 	press(m, tea.KeyEnter)
-	if m.state != "devices" || !strings.Contains(ansi.Strip(m.View().Content), "端口") {
+	if m.state != "devices" || !strings.Contains(ansi.Strip(m.View().Content), "IP") || strings.Contains(ansi.Strip(m.View().Content), "端口") {
 		t.Fatal("manual selection did not open input form")
 	}
 	press(m, tea.KeyEsc)

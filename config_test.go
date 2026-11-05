@@ -85,6 +85,8 @@ func TestConfigApply(t *testing.T) {
 			f.Duration("timeout", time.Second, "")
 			if command != "discover" {
 				f.String("host", "", "")
+				f.String("protocol", "", "")
+				f.String("scheme", "", "")
 				f.String("endpoint", "", "")
 				f.Int("port", 8018, "")
 				f.String("path", "/wsd/scan", "")

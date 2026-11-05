@@ -15,6 +15,7 @@ type commandError struct {
 }
 
 type commandResult struct {
+	device     *scannerDevice
 	Status     string           `json:"status"`
 	Files      []string         `json:"files,omitempty"`
 	Pages      int              `json:"pages,omitempty"`
@@ -63,8 +64,39 @@ func executeCommand(parent context.Context, r commandRequest, find discoveryFunc
 		} else if errors.Is(err, context.DeadlineExceeded) {
 			kind = "timeout"
 		}
+		if errors.Is(err, errRecordNotFound) {
+			kind = "device_record_not_found"
+		}
+		if errors.Is(err, errIdentityConflict) {
+			kind = "device_identity_conflict"
+		}
 		result.fail(kind, err)
 		return result, exitCode(parent)
+	}
+	if r.command != "discover" && (r.endpoint != "" || r.host != "" || r.recordID != "") {
+		ctx, cancel := context.WithTimeout(parent, r.timeout)
+		resolved, discovered, warnings, err := resolveRequestDevice(ctx, r, find)
+		cancel()
+		result.Warnings = append(result.Warnings, warnings...)
+		for _, warning := range warnings {
+			fmt.Fprintf(stderr, "发现警告：%q\n", warning)
+		}
+		if err != nil {
+			return fail("device_resolution_failed", err)
+		}
+		r = resolved
+		if !hooks.agent && len(discovered) > 0 {
+			if err := parent.Err(); err != nil {
+				return fail("cancelled", err)
+			}
+			var updates []savedDevice
+			for _, d := range discovered {
+				updates = append(updates, savedDevice{scannerDevice: d, Discovered: true})
+			}
+			if err := rememberDrives(updates); err != nil {
+				return fail("device_store_failed", err)
+			}
+		}
 	}
 	if r.command == "discover" || r.endpoint == "" {
 		if hooks.agent && r.command != "discover" {
@@ -92,6 +124,11 @@ func executeCommand(parent context.Context, r commandRequest, find discoveryFunc
 				return fail("device_store_failed", fmt.Errorf("保存设备信息表失败：%w", err))
 			}
 		}
+		saved, err := loadDrives()
+		if err != nil {
+			return fail("device_store_failed", err)
+		}
+		devices = applySavedPreferences(devices, saved)
 		if r.command == "discover" {
 			if devices == nil {
 				devices = []scannerDevice{}
@@ -111,20 +148,53 @@ func executeCommand(parent context.Context, r commandRequest, find discoveryFunc
 		if err != nil {
 			return fail("device_selection_failed", err)
 		}
-		selected, err := deviceFromEndpoint(endpoint)
-		if err == nil {
-			err = saveDefaultDevice(selected)
+		matched := false
+		for _, device := range devices {
+			if device.Endpoint != endpoint {
+				continue
+			}
+			protocol := ""
+			if r.protocolExplicit {
+				protocol = r.protocol
+			}
+			selected, selectErr := device.endpointFor(protocol)
+			if selectErr != nil {
+				return fail("device_selection_failed", selectErr)
+			}
+			copy := device
+			r.device = &copy
+			r.recordID = device.RecordID
+			endpoint, r.protocol = selected.Endpoint, selected.Protocol
+			matched = true
+			break
 		}
-		if err != nil {
-			return fail("config_save_failed", fmt.Errorf("登记默认设备失败；未启动扫描：%w", err))
+		if !matched {
+			return fail("device_selection_failed", errors.New("选择结果不属于本次发现的设备"))
 		}
 		r.endpoint = endpoint
-		fmt.Fprintln(stderr, "已登记默认设备：", endpoint)
+		r.registerDefault = true
 	}
-	c, err := newEndpointClient(r.endpoint)
+	c, err := newProtocolClient(r.endpoint, r.protocol)
 	if err != nil {
 		result.fail("invalid_arguments", err)
 		return result, 2
+	}
+	c.expectedDevice = r.device
+	result.device = &scannerDevice{RecordID: r.recordID, Endpoint: c.endpoint, Protocol: protocolName(c.protocol)}
+	if r.registerDefault {
+		c.beforeScan = func(ctx context.Context, cap info) error {
+			d, err := rememberVerifiedDevice(ctx, c, cap)
+			if err != nil {
+				return err
+			}
+			result.device.RecordID = d.RecordID
+			if err := saveDefaultRecord(ctx, d.RecordID); err != nil {
+				return fmt.Errorf("登记默认设备失败；未启动扫描：%w", err)
+			}
+			c.beforeScan = nil
+			fmt.Fprintln(stderr, "已登记默认设备记录：", d.RecordID)
+			return nil
+		}
 	}
 	if r.command == "info" {
 		ctx, cancel := context.WithTimeout(parent, r.timeout)
@@ -138,9 +208,15 @@ func executeCommand(parent context.Context, r commandRequest, find discoveryFunc
 			if err := parent.Err(); err != nil {
 				return fail("cancelled", err)
 			}
-			update := savedDevice{scannerDevice: scannerDevice{Endpoint: c.endpoint, Protocol: "wsd"}, Verified: true, Info: &cap}
-			if err := rememberDrives([]savedDevice{update}); err != nil {
+			d, err := rememberVerifiedDevice(ctx, c, cap)
+			if err != nil {
 				return fail("device_store_failed", fmt.Errorf("保存设备信息表失败：%w", err))
+			}
+			result.device.RecordID = d.RecordID
+			if r.registerDefault {
+				if err := saveDefaultRecord(ctx, d.RecordID); err != nil {
+					return fail("config_save_failed", fmt.Errorf("登记默认设备失败：%w", err))
+				}
 			}
 		}
 		encoder := json.NewEncoder(stdout)

@@ -1,9 +1,5 @@
 {
-  "device": {
-    "host": "",
-    "port": 8018,
-    "path": "/wsd/scan"
-  },
+  "device": {},
   "scan": {
     "dpi": 150,
     "mode": "color",

@@ -19,13 +19,14 @@ import (
 )
 
 var (
-	tuiAccent  = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
-	tuiSuccess = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	tuiWarning = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	tuiError   = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
-	tuiPath    = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
-	tuiMuted   = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	tuiModel   = lipgloss.NewStyle().Bold(true)
+	tuiAccent   = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
+	tuiSuccess  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	tuiWarning  = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	tuiError    = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+	tuiPath     = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
+	tuiProtocol = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
+	tuiMuted    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	tuiModel    = lipgloss.NewStyle().Bold(true)
 )
 
 func interactiveOutput(output io.Writer) bool {
@@ -51,6 +52,7 @@ type commandDoneMsg struct {
 }
 type deviceSavedMsg struct {
 	endpoint string
+	protocol string
 	result   commandResult
 	code     int
 }
@@ -73,7 +75,7 @@ type humanModel struct {
 	drives                []savedDevice
 	drivesError           error
 	deviceCursor          int
-	deviceInputs          [3]textinput.Model
+	deviceInputs          [1]textinput.Model
 	deviceField           int
 	autoDiscover          bool
 	discovering           bool
@@ -177,14 +179,7 @@ func (m *humanModel) checkDevice() {
 func (m *humanModel) showReadiness(result commandResult, code int) {
 	m.reloadDrives()
 	if code == 0 {
-		opts := m.request.opts
-		// Match the native image format used by scanPages: PDF uses JPEG; PNG uses TIFF.
-		opts.Format = formatJPEG
-		switch strings.ToLower(filepath.Ext(m.request.output)) {
-		case ".tif", ".tiff", ".png":
-			opts.Format = formatTIFF
-		}
-		if _, err := ticket(*result.Info, opts); err != nil {
+		if _, _, err := imageTicket(*result.Info, m.request.opts, strings.ToLower(filepath.Ext(m.request.output))); err != nil {
 			result.fail("device_not_ready", err)
 			code = 1
 		}
@@ -201,7 +196,7 @@ func (m *humanModel) Init() tea.Cmd {
 	var focus tea.Cmd
 	if m.request.command == "discover" {
 		m.start(true)
-	} else if m.request.endpoint == "" {
+	} else if m.request.endpoint == "" && m.request.host == "" && m.request.recordID == "" {
 		focus = m.editDevice()
 	} else if m.request.command == "info" {
 		m.start(false)
@@ -252,6 +247,10 @@ func (m *humanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.listen
 	case commandDoneMsg:
 		m.working = false
+		if msg.result.device != nil {
+			m.request.endpoint, m.request.protocol, m.request.host = msg.result.device.Endpoint, msg.result.device.Protocol, ""
+			m.request.recordID = msg.result.device.RecordID
+		}
 		if msg.checking && m.ctx.Err() == nil {
 			m.showReadiness(msg.result, msg.code)
 		} else {
@@ -260,6 +259,28 @@ func (m *humanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.ctx.Err() != nil {
 			m.code = 130
 			return m, tea.Quit
+		}
+		return m, m.listen
+	case manualDeviceDiscoveryMsg:
+		if msg.generation != m.discoveryGeneration || m.state != "devices" || !m.discovering || m.autoDiscover {
+			return m, m.listen
+		}
+		m.discovering = false
+		m.warnings = msg.result.Warnings
+		if msg.result.Error != nil {
+			m.notice = msg.result.Error.Message
+			return m, m.listen
+		}
+		m.reloadDrives()
+		if msg.result.Devices != nil {
+			m.devices = *msg.result.Devices
+		}
+		if len(m.devices) == 1 {
+			m.verifyScannerDevice(m.devices[0])
+		} else {
+			m.autoDiscover = true
+			m.deviceField = deviceFirstResult
+			m.notice = "该 IP 有多条无法确认同一身份的记录；请选择设备，不会自动合并"
 		}
 		return m, m.listen
 	case deviceDiscoveryMsg:
@@ -293,7 +314,10 @@ func (m *humanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.state, m.notice = "devices", msg.result.Error.Message
 			return m, m.listen
 		}
-		m.request.endpoint = msg.endpoint
+		m.request.endpoint, m.request.protocol, m.request.host = msg.endpoint, msg.protocol, ""
+		if msg.result.device != nil {
+			m.request.recordID = msg.result.device.RecordID
+		}
 		m.reloadDrives()
 		if m.request.command == "info" {
 			m.finish(msg.result, 0)
@@ -343,6 +367,9 @@ func (m *humanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "settings":
 			return m, m.updateSettings(msg)
 		case "done":
+			if key == "d" && m.result.Error != nil && m.result.Error.Code == "device_record_not_found" {
+				return m, m.editDevice()
+			}
 			if key == "q" || key == "esc" || key == "enter" {
 				return m, tea.Quit
 			}
@@ -351,7 +378,7 @@ func (m *humanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 	}
-	if m.state == "devices" && m.deviceField < len(m.deviceInputs) {
+	if m.state == "devices" && m.deviceField < len(m.deviceInputs) && (!m.discovering || m.autoDiscover) {
 		var cmd tea.Cmd
 		m.deviceInputs[m.deviceField], cmd = m.deviceInputs[m.deviceField].Update(msg)
 		return m, cmd
@@ -391,7 +418,7 @@ func (m *humanModel) View() tea.View {
 		}
 	case "device-list":
 		lines = append(lines, m.deviceListView(width))
-		footer = "↑/↓ 选择 · Enter 使用/添加 · Esc 返回"
+		footer = "↑/↓ 选择 · Enter 使用/添加 · p 切换首选协议 · Esc 返回"
 		if m.deviceCursor == len(m.drives)+1 {
 			footer = "Space/Enter 自动发现开关 · r 重新搜索 · Esc 返回"
 		}
@@ -433,6 +460,9 @@ func (m *humanModel) View() tea.View {
 		m.viewport.SetContent(resultText(m.result, true))
 		lines = append(lines, m.viewport.View())
 		footer = "↑/↓ 滚动 · Enter / q 退出"
+		if m.result.Error != nil && m.result.Error.Code == "device_record_not_found" {
+			footer = "d 重新选择设备 · Enter / q 退出"
+		}
 	}
 	if m.notice != "" {
 		lines = append(lines, tuiWarning.Render("提示  "+terminalText(m.notice)))

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 	"time"
 
@@ -16,14 +15,16 @@ import (
 
 const (
 	deviceHost = iota
-	devicePort
-	devicePath
 	deviceConfirm
 	deviceAuto
 	deviceFirstResult
 )
 
 type deviceDiscoveryMsg struct {
+	generation int
+	result     commandResult
+}
+type manualDeviceDiscoveryMsg struct {
 	generation int
 	result     commandResult
 }
@@ -51,30 +52,29 @@ func (m *humanModel) focusDeviceField(field int) tea.Cmd {
 func (m *humanModel) editDeviceForm() tea.Cmd {
 	m.stopDeviceDiscovery()
 	m.state, m.notice, m.autoDiscover, m.devices, m.warnings = "devices", "", false, nil, nil
-	device := defaultConfig().Device
+	host := m.request.host
 	if cfg, err := loadConfig(); err == nil {
-		device = cfg.Device
+		if host == "" {
+			host = cfg.Device.Host
+		}
 	} else {
 		m.notice = "读取设备默认值失败：" + err.Error()
 	}
 	if m.request.endpoint != "" {
-		if current, err := deviceFromEndpoint(m.request.endpoint); err == nil {
-			device = current
+		if current, err := deviceFromProtocolEndpoint(m.request.endpoint, m.request.protocol); err == nil {
+			host = current.Host
 		}
 	}
-	values := []string{device.Host, strconv.Itoa(device.Port), device.Path}
-	for i, value := range values {
-		input := textinput.New()
-		input.Prompt = ""
-		input.SetVirtualCursor(true)
-		input.SetValue(value)
-		styles := input.Styles()
-		styles.Focused.Prompt, styles.Focused.Placeholder = tuiAccent, tuiMuted
-		styles.Cursor.Color = lipgloss.Color("6")
-		input.SetStyles(styles)
-		m.deviceInputs[i] = input
-	}
-	m.deviceInputs[deviceHost].Placeholder = "扫描仪 IP，例如 192.168.1.100"
+	input := textinput.New()
+	input.Prompt = ""
+	input.SetVirtualCursor(true)
+	input.SetValue(host)
+	input.Placeholder = "扫描仪 IP，例如 192.168.1.100"
+	styles := input.Styles()
+	styles.Focused.Prompt, styles.Focused.Placeholder = tuiAccent, tuiMuted
+	styles.Cursor.Color = lipgloss.Color("6")
+	input.SetStyles(styles)
+	m.deviceInputs[deviceHost] = input
 	m.viewport.GotoTop()
 	return m.focusDeviceField(deviceHost)
 }
@@ -96,41 +96,77 @@ func (m *humanModel) discoverDevices() {
 }
 
 func (m *humanModel) verifyDevice() {
-	port, err := strconv.Atoi(strings.TrimSpace(m.deviceInputs[devicePort].Value()))
-	if err != nil {
-		m.notice = "端口必须是 1～65535 的整数"
-		return
-	}
-	device := deviceConfig{Host: strings.TrimSpace(m.deviceInputs[deviceHost].Value()), Port: port, Path: strings.TrimSpace(m.deviceInputs[devicePath].Value())}
-	endpoint, err := device.endpoint()
+	ip, err := discoveryIP(strings.TrimSpace(m.deviceInputs[deviceHost].Value()))
 	if err != nil {
 		m.notice = err.Error()
 		return
 	}
 	m.stopDeviceDiscovery()
+	m.autoDiscover, m.discovering, m.devices = false, true, nil
+	m.notice = "正在发现 IP " + ip.String() + " 的扫描服务；Esc 返回，不会启动扫描"
+	ctx, cancel := context.WithCancel(m.ctx)
+	m.discoveryCancel = cancel
+	generation := m.discoveryGeneration
+	r, find := m.request, m.find
+	r.command, r.timeout = "discover", min(r.timeout, 10*time.Second)
+	m.task(func() tea.Msg {
+		defer cancel()
+		filtered := func(ctx context.Context) ([]scannerDevice, []string, error) {
+			return discoverDeviceIP(ctx, ip.String(), find)
+		}
+		result, _ := executeCommand(ctx, r, filtered, commandHooks{}, io.Discard, io.Discard)
+		return manualDeviceDiscoveryMsg{generation: generation, result: result}
+	})
+}
+
+func (m *humanModel) verifyScannerDevice(selected scannerDevice) {
+	protocol := ""
+	if m.request.protocolExplicit {
+		protocol = m.request.protocol
+	}
+	e, err := selected.endpointFor(protocol)
+	if err != nil {
+		m.notice = err.Error()
+		return
+	}
+	device, err := deviceFromProtocolEndpoint(e.Endpoint, e.Protocol)
+	if err != nil {
+		m.notice = err.Error()
+		return
+	}
+	m.deviceInputs[deviceHost].SetValue(device.Host)
+	m.stopDeviceDiscovery()
 	m.autoDiscover, m.devices = false, nil
 	m.deviceField = min(m.deviceField, deviceAuto)
 	m.working, m.state, m.notice = true, "working", ""
-	m.validatingEndpoint = endpoint
-	m.status = "正在验证 WSD 扫描服务；通过后保存默认设备…"
+	m.validatingEndpoint = e.Endpoint
+	m.status = "正在验证 " + protocolLabel(e.Protocol) + " 扫描服务；通过后保存默认设备…"
 	r := m.request
-	r.command, r.endpoint = "info", endpoint
+	r.command, r.endpoint, r.protocol, r.host = "info", e.Endpoint, e.Protocol, ""
+	r.protocolExplicit = true
+	r.recordID = selected.RecordID
 	m.task(func() tea.Msg {
 		result, code := executeCommand(m.ctx, r, nil, commandHooks{}, io.Discard, io.Discard)
 		if code == 0 {
 			if m.ctx.Err() != nil {
 				result.fail("cancelled", m.ctx.Err())
 				code = 130
-			} else if err := saveDefaultDevice(device); err != nil {
+			} else if result.device == nil || result.device.RecordID == "" {
+				result.fail("device_store_failed", errRecordNotFound)
+				code = 1
+			} else if err := saveDefaultRecord(m.ctx, result.device.RecordID); err != nil {
 				result.fail("config_save_failed", fmt.Errorf("登记默认设备失败；未启动扫描：%w", err))
 				code = 1
 			}
 		}
-		return deviceSavedMsg{endpoint: endpoint, result: result, code: code}
+		return deviceSavedMsg{endpoint: e.Endpoint, protocol: e.Protocol, result: result, code: code}
 	})
 }
 
 func (m *humanModel) updateDevices(msg tea.KeyPressMsg) tea.Cmd {
+	if m.discovering && !m.autoDiscover && msg.String() != "esc" {
+		return nil
+	}
 	switch msg.String() {
 	case "esc":
 		m.stopDeviceDiscovery()
@@ -149,15 +185,7 @@ func (m *humanModel) updateDevices(msg tea.KeyPressMsg) tea.Cmd {
 		case m.deviceField == deviceAuto:
 			m.toggleDeviceDiscovery()
 		case m.deviceField >= deviceFirstResult:
-			device, err := deviceFromEndpoint(m.devices[m.deviceField-deviceFirstResult].Endpoint)
-			if err != nil {
-				m.notice = err.Error()
-				return nil
-			}
-			for i, value := range []string{device.Host, strconv.Itoa(device.Port), device.Path} {
-				m.deviceInputs[i].SetValue(value)
-			}
-			m.verifyDevice()
+			m.verifyScannerDevice(m.devices[m.deviceField-deviceFirstResult])
 		}
 		return nil
 	case "space":
@@ -190,9 +218,9 @@ func (m *humanModel) toggleDeviceDiscovery() {
 }
 
 func (m *humanModel) devicesView(width int) string {
-	lines := []string{tuiAccent.Render("更换设备（先验证，再保存）")}
+	lines := []string{tuiAccent.Render("添加设备（只需 IP；先发现并验证，再保存）")}
 	focus := 0
-	for field, name := range []string{"IP", "端口", "路径", "验证并使用设备", "自动发现"} {
+	for field, name := range []string{"IP", "发现并使用设备", "自动发现"} {
 		prefix, label := "  ", name
 		if field == m.deviceField {
 			prefix, focus = "> ", len(lines)
@@ -221,19 +249,16 @@ func (m *humanModel) devicesView(width int) string {
 		if m.discovering {
 			status = "正在发现局域网设备…（关闭开关可停止）"
 		} else if len(m.devices) == 0 {
-			status = "未取得可用设备，可手动输入 IP 或按 r 重试"
+			status = "未取得可用设备，可输入 IP 或按 r 重试"
 		}
 		lines = append(lines, tuiAccent.Render(ansi.Truncate(status, width, "…")))
-		for i, device := range m.devices {
+		for i, d := range m.devices {
 			prefix := "  "
 			if m.deviceField == deviceFirstResult+i {
 				prefix, focus = "> ", len(lines)
 			}
-			line := ansi.Truncate(prefix+terminalText(device.Name+" · "+device.Model+" · "+device.Endpoint), width, "…")
-			if m.deviceField == deviceFirstResult+i {
-				line = tuiAccent.Render(line)
-			}
-			lines = append(lines, line)
+			label := m.scannerLabel(d.Endpoint, d.Protocol, d.Model, width-2)
+			lines = append(lines, prefix+label)
 		}
 	}
 	m.viewport.SetWidth(width)

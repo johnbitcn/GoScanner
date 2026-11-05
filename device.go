@@ -10,12 +10,18 @@ import (
 )
 
 type deviceConfig struct {
-	Host string `json:"host"`
-	Port int    `json:"port"`
-	Path string `json:"path"`
+	RecordID string `json:"record_id,omitempty"`
+	Host     string `json:"host,omitempty"`
+	Port     int    `json:"port,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Protocol string `json:"protocol,omitempty"`
+	Scheme   string `json:"scheme,omitempty"`
 }
 
 func (d deviceConfig) endpoint() (string, error) {
+	if d.RecordID != "" {
+		return "", errors.New("设备记录引用不能用作直接服务地址")
+	}
 	ip, err := netip.ParseAddr(d.Host)
 	if err != nil {
 		return "", errors.New("device.host / --host 必须是 IP 地址，不是 URL 或主机名")
@@ -26,12 +32,20 @@ func (d deviceConfig) endpoint() (string, error) {
 	if !strings.HasPrefix(d.Path, "/") || strings.ContainsAny(d.Path, "?#\r\n\t ") {
 		return "", errors.New("device.path / --path 必须以 / 开头，不含空白、查询参数或片段")
 	}
-	base := url.URL{Scheme: "http", Host: net.JoinHostPort(ip.Unmap().String(), strconv.Itoa(d.Port))}
-	return checkedEndpoint(base.String()+d.Path, netip.Addr{})
+	scheme := d.Scheme
+	if scheme == "" {
+		scheme = "http"
+	}
+	base := url.URL{Scheme: scheme, Host: net.JoinHostPort(ip.Unmap().String(), strconv.Itoa(d.Port))}
+	return checkedScannerEndpoint(base.String()+d.Path, d.Protocol)
 }
 
 func deviceFromEndpoint(raw string) (deviceConfig, error) {
-	endpoint, err := checkedEndpoint(raw, netip.Addr{})
+	return deviceFromProtocolEndpoint(raw, "")
+}
+
+func deviceFromProtocolEndpoint(raw, protocol string) (deviceConfig, error) {
+	endpoint, err := checkedScannerEndpoint(raw, protocol)
 	if err != nil {
 		return deviceConfig{}, err
 	}
@@ -44,6 +58,10 @@ func deviceFromEndpoint(raw string) (deviceConfig, error) {
 		return deviceConfig{}, err
 	}
 	d := deviceConfig{Host: u.Hostname(), Port: port, Path: u.EscapedPath()}
+	if protocolName(protocol) == "escl" {
+		d.Protocol = "escl"
+		d.Scheme = u.Scheme
+	}
 	if _, err := d.endpoint(); err != nil {
 		return deviceConfig{}, err
 	}

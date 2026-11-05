@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -29,8 +28,9 @@ func setDeviceFields(t *testing.T, m *humanModel, endpoint string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i, value := range []string{device.Host, strconv.Itoa(device.Port), device.Path} {
-		m.deviceInputs[i].SetValue(value)
+	m.deviceInputs[deviceHost].SetValue(device.Host)
+	m.find = func(context.Context) ([]scannerDevice, []string, error) {
+		return []scannerDevice{{Protocol: "wsd", Endpoint: endpoint}}, nil, nil
 	}
 }
 
@@ -42,6 +42,7 @@ func deviceConfigPath(t *testing.T) string {
 func TestHumanDeviceFormDefaultsAndInput(t *testing.T) {
 	m := humanTestModel(t)
 	m.request.endpoint = ""
+	m.request.recordID = ""
 	m.find = func(context.Context) ([]scannerDevice, []string, error) {
 		t.Fatal("discovery must be opt-in")
 		return nil, nil, nil
@@ -52,21 +53,21 @@ func TestHumanDeviceFormDefaultsAndInput(t *testing.T) {
 	}
 	m.deviceCursor = len(m.drives)
 	press(m, tea.KeyEnter)
-	if m.state != "devices" || m.working || m.autoDiscover || m.deviceInputs[deviceHost].Value() != "" || m.deviceInputs[devicePort].Value() != "8018" || m.deviceInputs[devicePath].Value() != "/wsd/scan" {
+	if m.state != "devices" || m.working || m.autoDiscover || m.deviceInputs[deviceHost].Value() != "" || len(m.deviceInputs) != 1 {
 		t.Fatal("manual defaults are wrong")
 	}
 	m.Update(tea.PasteMsg{Content: "192.168.1.100"})
 	press(m, tea.KeyEnter)
-	if m.deviceField != devicePort || m.deviceInputs[deviceHost].Value() != "192.168.1.100" {
+	if m.deviceField != deviceConfirm || m.deviceInputs[deviceHost].Value() != "192.168.1.100" {
 		t.Fatal("manual input or Enter navigation failed")
 	}
 	press(m, tea.KeyDown)
-	if m.deviceField != devicePath {
+	if m.deviceField != deviceAuto {
 		t.Fatal("arrow navigation failed")
 	}
 	m.Update(tea.WindowSizeMsg{Width: 40, Height: 12})
 	view := m.View().Content
-	if !strings.Contains(view, "/wsd/scan") || len(strings.Split(view, "\n")) > 12 {
+	if !strings.Contains(view, "192.168.1.100") || strings.Contains(view, "端口") || strings.Contains(view, "路径") || len(strings.Split(view, "\n")) > 12 {
 		t.Fatal("device form overflow", view)
 	}
 }
@@ -129,6 +130,10 @@ func TestHumanManualDeviceValidationBeforeSave(t *testing.T) {
 			}
 			selectDeviceField(m, deviceConfirm)
 			press(m, tea.KeyEnter)
+			if !m.discovering || m.working {
+				t.Fatal("IP must be discovered before validation")
+			}
+			m.Update(m.listen())
 			if !m.working || !strings.Contains(m.status, "验证 WSD") || m.request.endpoint != original || m.validatingEndpoint != c.endpoint {
 				t.Fatal("validation was skipped")
 			}
@@ -155,8 +160,8 @@ func TestHumanManualDeviceValidationBeforeSave(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				endpoint, err := cfg.Device.endpoint()
-				if err != nil || endpoint != c.endpoint {
+				endpoint := configuredRecord(t, cfg.Device).Endpoint
+				if endpoint != c.endpoint {
 					t.Fatal("valid device was not saved", endpoint, err)
 				}
 				want := "ready"
@@ -182,8 +187,7 @@ func TestHumanInvalidDeviceFields(t *testing.T) {
 		value string
 	}{
 		{deviceHost, ""}, {deviceHost, "scanner.local"}, {deviceHost, "http://127.0.0.1"},
-		{devicePort, "bad"}, {devicePort, "0"}, {devicePort, "65536"},
-		{devicePath, "wsd/scan"}, {devicePath, "/scan?token=bad"},
+		{deviceHost, "0.0.0.0"}, {deviceHost, "239.255.255.250"},
 	} {
 		setDeviceFields(t, m, m.request.endpoint)
 		m.deviceInputs[tc.field].SetValue(tc.value)
@@ -202,7 +206,7 @@ func TestHumanDeviceDiscoveryOptInAndConfirmation(t *testing.T) {
 	var finds atomic.Int32
 	m.find = func(context.Context) ([]scannerDevice, []string, error) {
 		finds.Add(1)
-		return []scannerDevice{{Name: "Only scanner", Endpoint: m.request.endpoint}}, nil, nil
+		return []scannerDevice{{Name: "Only scanner", Model: "Only scanner", Endpoint: m.request.endpoint}}, nil, nil
 	}
 	m.editDeviceForm()
 	if finds.Load() != 0 || m.autoDiscover {
@@ -275,6 +279,7 @@ func TestHumanDeviceValidationCancellation(t *testing.T) {
 	setDeviceFields(t, m, c.endpoint)
 	selectDeviceField(m, deviceConfirm)
 	press(m, tea.KeyEnter)
+	m.Update(m.listen())
 	<-started
 	m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	_, cmd := m.Update(m.listen())

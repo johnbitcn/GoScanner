@@ -54,7 +54,7 @@ func TestHelpContentAndLayout(t *testing.T) {
 		t.Fatal("wrapped descriptions must use hanging indentation", wide)
 	}
 	narrow := renderHelp("scan", 40, false)
-	if !strings.Contains(narrow, "\n  --port PORT\n    扫描服务端口。 默认：8018。") || strings.Contains(narrow, "\n                        ") {
+	if !strings.Contains(narrow, "\n  --port PORT\n    高级地址参数") || strings.Contains(narrow, "\n                        ") {
 		t.Fatal("narrow terminal must use stacked options", narrow)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -59,6 +60,15 @@ func TestManualCLIProcess(t *testing.T) {
 	}
 	for i, arg := range os.Args {
 		if arg == "--" {
+			if endpoint := os.Getenv("GOSCANNER_TEST_DISCOVER_ENDPOINT"); endpoint != "" {
+				ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+				find := func(context.Context) ([]scannerDevice, []string, error) {
+					return []scannerDevice{{Protocol: "wsd", Endpoint: endpoint, Model: "Mock scanner"}}, nil, nil
+				}
+				code := runWithDiscovery(ctx, os.Args[i+1:], os.Stdout, os.Stderr, find)
+				stop()
+				os.Exit(code)
+			}
 			os.Args = append([]string{"goscanner"}, os.Args[i+1:]...)
 			main()
 		}

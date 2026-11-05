@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -101,6 +100,9 @@ func TestHumanPTY(t *testing.T) {
 			}
 			cmd := exec.CommandContext(ctx, os.Args[0], args...)
 			cmd.Env = append(os.Environ(), "GOSCANNER_TEST_MANUAL_CHILD=1", "HOME="+dir, "XDG_CACHE_HOME="+dir, "TERM=xterm-256color", "NO_COLOR=1")
+			if scenario == "manual-device" {
+				cmd.Env = append(cmd.Env, "GOSCANNER_TEST_DISCOVER_ENDPOINT="+c.endpoint)
+			}
 			if scenario == "color" {
 				cmd.Env = append(cmd.Env, "NO_COLOR=", "CLICOLOR=1", "CLICOLOR_FORCE=0")
 			}
@@ -150,15 +152,15 @@ func TestHumanPTY(t *testing.T) {
 						}
 						master.Write([]byte("\r"))
 						stage, raw = 8, ""
-					} else if scenario == "manual-device" && stage == 8 && strings.Contains(text, "更换设备（先验证，再保存）") {
-						if jobs.Load() != 0 || queries.Load() != 0 || !strings.Contains(text, "8018") || !strings.Contains(text, "/wsd/scan") {
+					} else if scenario == "manual-device" && stage == 8 && strings.Contains(text, "添加设备（只需 IP；先发现并验证，再保存）") {
+						if jobs.Load() != 0 || queries.Load() != 0 || strings.Contains(text, "端口") || strings.Contains(text, "路径") {
 							t.Fatal("manual device screen queried or lacks defaults", text)
 						}
 						device, err := deviceFromEndpoint(c.endpoint)
 						if err != nil {
 							t.Fatal(err)
 						}
-						master.Write([]byte(device.Host + "\r\x01\x0b" + strconv.Itoa(device.Port) + "\r\x01\x0b" + device.Path + "\r\r"))
+						master.Write([]byte(device.Host + "\r\r"))
 						stage, raw = 7, ""
 					} else if stage == 7 && strings.Contains(text, "Enter 开始扫描") {
 						if jobs.Load() != 0 || queries.Load() != 1 {

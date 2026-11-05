@@ -84,12 +84,61 @@ func decodeConfig(data []byte, path string) (config, error) {
 	if err != nil {
 		return c, fmt.Errorf("解析配置文件 %s：%w", path, err)
 	}
+	var raw struct {
+		Device map[string]json.RawMessage `json:"device"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return c, err
+	}
+	if value, present := raw.Device["record_id"]; present {
+		var id string
+		if err := json.Unmarshal(value, &id); err != nil || !validRecordID(id) {
+			return c, errors.New("配置 device.record_id 格式无效")
+		}
+		if len(raw.Device) != 1 {
+			return c, errors.New("device.record_id 不能与旧地址字段混用")
+		}
+		c.Device = deviceConfig{RecordID: id}
+		return c, nil
+	}
+	if protocolName(c.Device.Protocol) == "escl" {
+		var fields struct {
+			Device map[string]json.RawMessage `json:"device"`
+		}
+		if err := json.Unmarshal(data, &fields); err != nil {
+			return c, err
+		}
+		if _, ok := fields.Device["port"]; !ok {
+			c.Device.Port = 80
+			if c.Device.Scheme == "https" {
+				c.Device.Port = 443
+			}
+		}
+		if _, ok := fields.Device["path"]; !ok {
+			c.Device.Path = "/eSCL"
+		}
+	}
 	return c, nil
 }
 
 func saveDefaultDevice(device deviceConfig) error {
-	if _, err := device.endpoint(); err != nil {
+	if device.RecordID != "" {
+		if !validRecordID(device.RecordID) || device.Host != "" || device.Port != 0 || device.Path != "" || device.Protocol != "" || device.Scheme != "" {
+			return errors.New("默认设备引用无效或与地址混用")
+		}
+		devices, err := loadDrives()
+		if err != nil {
+			return err
+		}
+		if _, err := lookupRecord(devices, device.RecordID); err != nil {
+			return err
+		}
+	} else if _, err := device.endpoint(); err != nil {
 		return err
+	}
+	if protocolName(device.Protocol) == "wsd" && (device.Scheme == "" || device.Scheme == "http") {
+		device.Protocol = ""
+		device.Scheme = ""
 	}
 	path, err := configPath()
 	if err != nil {
@@ -147,9 +196,11 @@ func (c config) apply(flags *flag.FlagSet, command string) error {
 	flags.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
 	type setting struct{ name, key, value string }
 	values := []setting{}
-	if command != "discover" && !explicit["endpoint"] {
+	if command != "discover" && !explicit["endpoint"] && c.Device.RecordID == "" {
 		values = append(values,
 			setting{"host", "device.host", c.Device.Host},
+			setting{"protocol", "device.protocol", c.Device.Protocol},
+			setting{"scheme", "device.scheme", c.Device.Scheme},
 			setting{"port", "device.port", strconv.Itoa(c.Device.Port)},
 			setting{"path", "device.path", c.Device.Path},
 		)

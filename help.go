@@ -158,7 +158,7 @@ func renderHelp(command string, width int, colored bool) string {
 
 func helpContent(command string) (string, []helpSection) {
 	if command == "" {
-		return "局域网 WSD 扫描工具", []helpSection{
+		return "macOS 局域网 eSCL / WSD 扫描工具", []helpSection{
 			{"用法", []helpItem{{text: "goscanner"}, {text: "goscanner [--agent] <命令> [参数]"}}},
 			{"命令", []helpItem{
 				{"scan", "扫描文档；默认打开交互界面", ""},
@@ -175,13 +175,16 @@ func helpContent(command string) (string, []helpSection) {
 		}
 	}
 	defaults := defaultConfig()
-	summary := map[string]string{"scan": "扫描文档", "info": "查看设备能力与状态，不启动扫描", "discover": "发现局域网 WSD 扫描设备"}[command]
+	summary := map[string]string{"scan": "扫描文档", "info": "查看设备能力与状态，不启动扫描", "discover": "并行发现局域网 eSCL 和 WSD 扫描设备"}[command]
 	sections := []helpSection{{"用法", []helpItem{{text: "goscanner [--agent] " + command + " [参数]"}}}}
 	if command != "discover" {
 		sections = append(sections, helpSection{"设备", []helpItem{
 			{"--host IP", "扫描仪 IP 地址，不接受主机名或 URL。未配置时可在交互界面选用或添加设备。", ""},
-			{"--port PORT", "扫描服务端口。", fmt.Sprint(defaults.Device.Port)},
-			{"--path PATH", "扫描服务路径，以 / 开头。", defaults.Device.Path},
+			{"--protocol NAME", "可选 wsd 或 escl，仅覆盖本次操作。不指定时使用设备列表首选协议；首次确认双协议时首选 eSCL。", "设备列表首选"},
+			{"--scheme NAME", "http 或 https；WSD 仅使用 http，eSCL 支持 https 并正常验证证书。", "http"},
+			{"--port PORT", "高级地址参数；配合 --host 指定已知扫描服务端口。", ""},
+			{"--path PATH", "高级地址参数；配合 --host 指定已知路径，以 / 开头。只给 IP 时由发现取得地址。", ""},
+			{text: "TUI 手动添加只输入 IP。已登记设备使用首选协议，未登记 IP 通过发现取得实际地址；发现失败时不猜端口或路径。"},
 		}})
 	}
 	if command == "scan" {
@@ -216,7 +219,7 @@ func helpContent(command string) (string, []helpSection) {
 	sections = append(sections, helpSection{"超时", []helpItem{timeout}})
 	if command != "discover" {
 		sections = append(sections, helpSection{"兼容参数", []helpItem{
-			{"--endpoint URL", "完整 HTTP 扫描端点；与 --host、--port、--path 互斥。", ""},
+			{"--endpoint URL", "完整 HTTP/HTTPS 扫描端点；已登记设备使用首选协议。--protocol 可选，仅覆盖本次；与拆分地址参数互斥。", ""},
 		}})
 	}
 	sections = append(sections, helpSection{"帮助", []helpItem{{"-h, --help", "显示当前命令的帮助", ""}}})
@@ -226,20 +229,20 @@ func helpContent(command string) (string, []helpSection) {
 			helpSection{"示例", []helpItem{{text: "goscanner scan -o 文档.pdf"}, {text: "goscanner scan --manual=false -o 单页.png"}, {text: "goscanner --agent scan -o 单页.pdf"}}},
 			helpSection{"默认行为", []helpItem{
 				{text: "未指定 -o 时，默认在当前目录生成 scan-YYYYMMDD-HHMMSS.jpg；连续图片追加 -001 等页码，PDF 默认合并。目录与格式可由配置覆盖。"},
-				{text: "TIFF 使用设备原生未压缩格式；PNG 由原生 TIFF 无损转换，不经过 JPEG。"},
-				{text: "交互界面先只读检查设备状态和参数，通过后按 Enter 才扫描。按 r 重查、s 修改设置、d 更换设备。"},
+				{text: "WSD 的 TIFF 使用设备原生未压缩格式，PNG 由 TIFF 无损转换。eSCL 按设备能力选择图像格式；JPEG 转 PNG 不能恢复已有压缩损失。"},
+				{text: "交互界面先只读检查设备状态和参数，通过后按 Enter 才扫描。按 r 重查、s 修改设置、d 更换设备；设备列表按 p 切换并保存首选协议。"},
 			}},
 			helpSection{"安全", []helpItem{
-				{text: "已有文件不会覆盖；不会自动重试扫描任务。Ctrl+C 尝试取消本客户端任务。"},
+				{text: "已有文件不会覆盖；协议连接失败不自动切换，扫描任务不自动重试。Ctrl+C 尝试取消本客户端任务。"},
 				{text: "合并 PDF 在正常结束、中断或后续页失败时尝试保存已完成页面。"},
 			}},
-			helpSection{"Agent 模式", []helpItem{{text: "--agent 必须放在命令前。仅输出一个 JSON 结果，不交互、不自动发现、不写配置或设备表。须提供设备地址或配置默认设备，不支持 --manual。"}}},
+			helpSection{"Agent 模式", []helpItem{{text: "--agent 必须放在命令前。仅输出一个 JSON 结果，不交互、不写配置或设备表。只给未登记 IP 时会按 IP 筛选发现；未提供地址时不自动发现。须提供设备地址或配置默认设备，不支持 --manual。"}}},
 		)
 	case "info":
 		sections = append(sections,
 			helpSection{"示例", []helpItem{{text: "goscanner info"}, {text: "goscanner info --host 192.168.1.8"}, {text: "goscanner --agent info"}}},
-			helpSection{"行为", []helpItem{{text: "只读查询设备，不启动扫描。普通模式记录成功查询的能力与状态到 drives.json；交互选择新设备后才修改默认设备。"}}},
-			helpSection{"Agent 模式", []helpItem{{text: "--agent 必须放在命令前。仅输出一个 JSON 结果，不交互、不自动发现、不写配置或设备表。未配置设备时返回 device_required。"}}},
+			helpSection{"行为", []helpItem{{text: "只读查询设备，不启动扫描。普通模式记录能力与状态到 drives.json；明确选择并验证设备后，才保存默认记录引用。"}}},
+			helpSection{"Agent 模式", []helpItem{{text: "--agent 必须放在命令前。仅输出一个 JSON 结果，不交互、不写配置或设备表。只给未登记 IP 时会按 IP 筛选发现；未提供地址时返回 device_required。"}}},
 		)
 	case "discover":
 		sections = append(sections,
@@ -251,7 +254,8 @@ func helpContent(command string) (string, []helpSection) {
 	if command != "discover" {
 		sections = append(sections, helpSection{"配置", []helpItem{
 			{text: "~/.config/goscanner/config.json"},
-			{text: "显式命令行参数 > 配置文件 > 内置默认值。上方列出内置默认值。"},
+			{text: "扫描参数：显式命令行参数 > 配置文件 > 内置默认值。默认设备用 device.record_id 引用设备表，协议默认使用设备列表首选设置。"},
+			{text: "引用失效返回 device_record_not_found；设备身份明确冲突返回 device_identity_conflict。重新选择设备，不会自动改绑或重扫。"},
 		}})
 	}
 	return summary, sections

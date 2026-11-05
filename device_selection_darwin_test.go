@@ -49,9 +49,15 @@ func TestDeviceSelectionCLI(t *testing.T) {
 				c := testClient(t, func(w http.ResponseWriter, r *http.Request, action string, _ []byte) {
 					requests.Add(1)
 					saved, err := loadConfig()
-					savedEndpoint, addressErr := saved.Device.endpoint()
-					if err != nil || addressErr != nil || savedEndpoint != "http://"+r.Host+"/wsd/scan" {
-						t.Errorf("queried before saving selected device: %+v, %v, %v", saved, err, addressErr)
+					if action == "GetScannerElements" {
+						if saved.Device.RecordID != "" {
+							t.Error("default saved before read-only validation")
+						}
+						if err != nil && scenario != "save-failure" {
+							t.Error(err)
+						}
+					} else if err != nil || configuredRecord(t, saved.Device).Endpoint != "http://"+r.Host+"/wsd/scan" {
+						t.Error("scan started before saving verified reference", err)
 					}
 					switch action {
 					case "GetScannerElements":
@@ -163,14 +169,20 @@ func TestDeviceSelectionCLI(t *testing.T) {
 				data, _ := os.ReadFile(path)
 				if success {
 					cfg, err := loadConfig()
-					if err != nil || cfg.Device != deviceForTest(t, c.endpoint) || cfg.Output.Format != "png" || requests.Load() == 0 {
+					if err != nil || configuredRecord(t, cfg.Device).Endpoint != c.endpoint || cfg.Output.Format != "png" || requests.Load() == 0 {
 						t.Fatalf("selected device not saved/used: %+v %v\n%s", cfg, err, log.String())
 					}
 					if command == "scan" {
 						assertSavedImage(t, outputPath, image)
 					}
-				} else if requests.Load() != 0 || !bytes.Equal(data, original) {
-					t.Fatalf("failure queried device or changed config\n%s", log.String())
+				} else {
+					wantQueries := int32(0)
+					if scenario == "save-failure" {
+						wantQueries = 1
+					}
+					if requests.Load() != wantQueries || !bytes.Equal(data, original) {
+						t.Fatalf("failure changed config or queried unexpectedly: queries=%d\n%s", requests.Load(), log.String())
+					}
 				}
 				wantJobs := int32(0)
 				if success && command == "scan" {

@@ -126,6 +126,8 @@ func (m *humanModel) settingChoices() []settingChoice {
 		}
 		if slices.Contains(cap.Formats, formatTIFF) {
 			choices = append(choices, settingChoice{"TIFF", ".tiff"}, settingChoice{"PNG", ".png"})
+		} else if cap.escl != nil && (slices.Contains(cap.Formats, formatPNG) || slices.Contains(cap.Formats, formatJPEG)) {
+			choices = append(choices, settingChoice{"PNG", ".png"})
 		}
 	}
 	return choices

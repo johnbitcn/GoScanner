@@ -1,7 +1,7 @@
 package main
 
 import (
-	"strconv"
+	"net/url"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -13,34 +13,54 @@ func (m *humanModel) reloadDrives() {
 }
 
 func (m *humanModel) deviceLabel(endpoint string, width int) string {
-	model := "未知型号"
+	model, protocol := "未知型号", m.request.protocol
 	for _, device := range m.drives {
-		if device.Endpoint == endpoint && device.Model != "" {
-			model = device.Model
-			break
+		if !deviceHasEndpoint(device.scannerDevice, endpoint) {
+			continue
 		}
+		if device.Model != "" {
+			model = device.Model
+		}
+		for _, e := range scannerEndpoints(device.scannerDevice) {
+			if e.Endpoint == endpoint {
+				protocol = e.Protocol
+				break
+			}
+		}
+		break
+	}
+	return m.scannerLabel(endpoint, protocol, model, width)
+}
+
+func (m *humanModel) scannerLabel(endpoint, protocol, model string, width int) string {
+	if model == "" {
+		model = "未知型号"
 	}
 	ip := endpoint
-	if device, err := deviceFromEndpoint(endpoint); err == nil {
-		ip = device.Host
+	if u, err := url.Parse(endpoint); err == nil && u.Hostname() != "" {
+		ip = u.Hostname()
 	}
 	if endpoint == "" {
 		return tuiMuted.Render("未选择设备")
 	}
 	ip = terminalText(ip)
-	model = ansi.Truncate(terminalText(model), max(1, width-2-ansi.StringWidth(ip)), "…")
-	return tuiModel.Render(model) + "  " + tuiPath.Render(ip)
+	label := protocolLabel(protocol)
+	model = ansi.Truncate(terminalText(model), max(1, width-4-ansi.StringWidth(ip)-ansi.StringWidth(label)), "…")
+	return tuiModel.Render(model) + "  " + tuiPath.Render(ip) + "  " + tuiProtocol.Render(label)
 }
 
 func (m *humanModel) editDevice() tea.Cmd {
 	m.stopDeviceDiscovery()
 	m.state, m.autoDiscover, m.notice, m.deviceCursor = "device-list", false, "", 0
+	if err := ensureStoredRecordIDs(); err != nil {
+		m.notice = "设备记录初始化失败：" + err.Error()
+	}
 	m.reloadDrives()
 	if m.drivesError != nil {
 		m.notice = "读取设备信息表失败：" + m.drivesError.Error()
 	}
 	for i, device := range m.drives {
-		if device.Endpoint == m.request.endpoint {
+		if recordMatches(device, m.request.recordID) || (m.request.recordID == "" && deviceHasEndpoint(device.scannerDevice, m.request.endpoint)) {
 			m.deviceCursor = i
 			break
 		}
@@ -58,22 +78,40 @@ func (m *humanModel) updateDeviceList(msg tea.KeyPressMsg) tea.Cmd {
 	case "enter":
 		switch {
 		case m.deviceCursor < len(m.drives):
-			endpoint := m.drives[m.deviceCursor].Endpoint
-			device, err := deviceFromEndpoint(endpoint)
-			if err != nil {
-				m.notice = err.Error()
-				return nil
-			}
+			selected := m.drives[m.deviceCursor].scannerDevice
 			m.editDeviceForm()
-			for i, value := range []string{device.Host, strconv.Itoa(device.Port), device.Path} {
-				m.deviceInputs[i].SetValue(value)
-			}
-			m.verifyDevice()
+			m.verifyScannerDevice(selected)
 		case m.deviceCursor == len(m.drives):
 			return m.editDeviceForm()
 		default:
 			m.toggleDeviceDiscovery()
 		}
+	case "p":
+		if m.deviceCursor >= len(m.drives) {
+			m.notice = "请先选中设备，再修改首选协议"
+			return nil
+		}
+		d := m.drives[m.deviceCursor].scannerDevice
+		preferred := "escl"
+		if protocolName(d.Protocol) == "escl" {
+			preferred = "wsd"
+		}
+		e, err := d.endpointFor(preferred)
+		if err != nil {
+			m.notice = "该设备只确认支持 " + protocolLabel(d.Protocol) + "，不能切换首选协议"
+			return nil
+		}
+		if err := savePreferredProtocol(d.RecordID, preferred); err != nil {
+			m.notice = "保存首选协议失败：" + err.Error()
+			return nil
+		}
+		if (recordMatches(m.drives[m.deviceCursor], m.request.recordID) || (m.request.recordID == "" && deviceHasEndpoint(d, m.request.endpoint))) && !m.request.protocolExplicit {
+			m.request.endpoint, m.request.protocol, m.request.host = e.Endpoint, e.Protocol, ""
+			m.request.recordID = d.RecordID
+			m.capabilities = nil
+		}
+		m.reloadDrives()
+		m.notice = "已保存首选协议：" + protocolLabel(preferred) + "；连接失败不会自动切换协议"
 	case "space":
 		if m.deviceCursor == len(m.drives)+1 {
 			m.toggleDeviceDiscovery()
@@ -107,7 +145,7 @@ func (m *humanModel) deviceListView(width int) string {
 		if m.deviceCursor == i {
 			prefix, focus = tuiAccent.Render("> "), len(lines)
 		}
-		lines = append(lines, prefix+m.deviceLabel(device.Endpoint, width-2))
+		lines = append(lines, prefix+m.scannerLabel(device.Endpoint, device.Protocol, device.Model, width-2))
 	}
 	for i, text := range []string{"手动添加", "自动发现  [ ] 关闭"} {
 		if i == 1 && m.autoDiscover {

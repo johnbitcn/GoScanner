@@ -20,10 +20,14 @@ type discoveryFunc func(context.Context) ([]scannerDevice, []string, error)
 var errOutputFormat = errors.New("输出扩展名必须是 .jpg、.jpeg、.tif、.tiff、.png 或 .pdf")
 
 type commandRequest struct {
-	command, endpoint, area, output string
-	timeout                         time.Duration
-	opts                            options
-	manual, singlePage              bool
+	command, endpoint, protocol, host, area, output string
+	recordID                                        string
+	device                                          *scannerDevice
+	registerDefault                                 bool
+	timeout                                         time.Duration
+	opts                                            options
+	manual, singlePage                              bool
+	protocolExplicit                                bool
 }
 
 func (r *commandRequest) validateScan() error {
@@ -70,10 +74,12 @@ func parseRequest(args []string, manualDefault bool) (r commandRequest, help str
 	flags.DurationVar(&r.timeout, "timeout", r.timeout, "任务超时；每页分别计时，不包含交互等待；失败清理最多额外等待 10 秒")
 	device := defaults.Device
 	if r.command != "discover" {
-		flags.StringVar(&device.Host, "host", "", "扫描仪 IP；TUI 可选已保存设备、手动添加或开启自动发现")
+		flags.StringVar(&device.Protocol, "protocol", "", "可选协议：wsd 或 escl；仅覆盖本次操作，默认使用设备列表首选协议")
+		flags.StringVar(&device.Scheme, "scheme", "", "服务 scheme：http 或 https；默认 http")
+		flags.StringVar(&device.Host, "host", "", "扫描仪 IP；只给 IP 时使用设备表或发现结果解析服务地址")
 		flags.IntVar(&device.Port, "port", device.Port, "扫描服务端口")
 		flags.StringVar(&device.Path, "path", device.Path, "扫描服务路径，以 / 开头")
-		flags.StringVar(&r.endpoint, "endpoint", "", "完整 HTTP 地址；与 --host、--port、--path 互斥")
+		flags.StringVar(&r.endpoint, "endpoint", "", "完整 HTTP/HTTPS 地址；已登记设备默认使用首选协议，与拆分地址参数互斥")
 	}
 	if r.command == "scan" {
 		flags.BoolVar(&r.opts.Deskew, "deskew", false, "AI 纠偏")
@@ -92,8 +98,10 @@ func parseRequest(args []string, manualDefault bool) (r commandRequest, help str
 		return invalid(err)
 	}
 	badAddress, addressParts := false, false
+	explicit := map[string]bool{}
 	flags.Visit(func(f *flag.Flag) {
-		if f.Name == "host" || f.Name == "port" || f.Name == "path" {
+		explicit[f.Name] = true
+		if f.Name == "host" || f.Name == "port" || f.Name == "path" || f.Name == "scheme" {
 			addressParts = true
 		}
 		if (f.Name == "host" || f.Name == "endpoint") && f.Value.String() == "" {
@@ -128,11 +136,49 @@ func parseRequest(args []string, manualDefault bool) (r commandRequest, help str
 			return invalid(err)
 		}
 	}
-	if r.endpoint == "" && device.Host != "" {
+	r.protocol = protocolName(device.Protocol)
+	r.protocolExplicit = explicit["protocol"]
+	if cfg.Device.RecordID != "" && !explicit["host"] && !explicit["endpoint"] {
+		r.recordID = cfg.Device.RecordID
+		if explicit["port"] || explicit["path"] || explicit["scheme"] {
+			return invalid(errors.New("记录引用模式下请同时提供 --host，不能仅覆盖端口、路径或 scheme"))
+		}
+	}
+	if r.protocol != "wsd" && r.protocol != "escl" {
+		return invalid(errors.New("--protocol / device.protocol 必须是 wsd 或 escl"))
+	}
+	if r.protocol != protocolName(cfg.Device.Protocol) {
+		if !explicit["scheme"] {
+			device.Scheme = "http"
+		}
+		if !explicit["port"] {
+			device.Port = 8018
+			if r.protocol == "escl" {
+				device.Port = 80
+				if device.Scheme == "https" {
+					device.Port = 443
+				}
+			}
+		}
+		if !explicit["path"] {
+			device.Path = "/wsd/scan"
+			if r.protocol == "escl" {
+				device.Path = "/eSCL"
+			}
+		}
+	}
+	if (explicit["host"] || (explicit["protocol"] && r.protocol != protocolName(cfg.Device.Protocol) && !explicit["endpoint"])) && !explicit["port"] && !explicit["path"] && !explicit["scheme"] && device.Host != "" {
+		_, err = discoveryIP(device.Host)
+		r.host = device.Host
+	} else if r.endpoint == "" && device.Host != "" {
 		r.endpoint, err = device.endpoint()
 	}
 	if err == nil && r.endpoint != "" {
-		_, err = newEndpointClient(r.endpoint)
+		if strings.HasPrefix(r.endpoint, "https://") {
+			_, err = checkedESCLEndpoint(r.endpoint)
+		} else {
+			_, err = newProtocolClient(r.endpoint, r.protocol)
+		}
 	}
 	if err != nil {
 		return invalid(err)

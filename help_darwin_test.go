@@ -90,7 +90,9 @@ func TestHelpPTY(t *testing.T) {
 			if ansi.Strip(raw) != renderHelp("scan", min(tc.width, 88), false) {
 				t.Fatal("actual terminal layout differs from rendered help", raw)
 			}
-			if tc.colored && (!strings.Contains(raw, "\x1b[1m--port PORT") || !strings.Contains(raw, tuiMuted.Render("默认：8018。"))) {
+			// Defaults can wrap across lines; assert their style without fixing one numeric value.
+			mutedPrefix := strings.Split(tuiMuted.Render("x"), "x")[0]
+			if tc.colored && (!strings.Contains(raw, "\x1b[1m--port PORT") || !strings.Contains(raw, mutedPrefix)) {
 				t.Fatal("option styling missing in actual terminal")
 			}
 		})

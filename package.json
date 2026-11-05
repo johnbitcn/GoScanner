@@ -1,7 +1,7 @@
 {
   "name": "@codingbone/goscanner",
   "version": "0.1.1",
-  "description": "Precompiled macOS Apple Silicon WSD scanner with bundled OpenCV, ONNX Runtime and DocAligner.",
+  "description": "Precompiled macOS Apple Silicon eSCL/WSD scanner with bundled OpenCV, ONNX Runtime and DocAligner.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -31,6 +31,8 @@
     "npm/dependencies.json",
     "ani/",
     "docs/configuration.md",
+    "docs/configuration-compatibility.md",
+    "docs/escl.md",
     "docs/interfaces.md",
     "docs/build.md",
     "docs/npm.md",
