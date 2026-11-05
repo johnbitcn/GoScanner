@@ -113,7 +113,7 @@ func TestTUIExplicitServiceVerificationDoesNotFallback(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	m := newHumanModel(ctx, cancel, commandRequest{command: "info", endpoint: escl.endpoint, protocol: "escl", timeout: time.Second}, nil)
 	t.Cleanup(func() { close(m.stopped); cancel(); m.tasks.Wait() })
-	m.find = func(context.Context) ([]scannerDevice, []string, error) { return []scannerDevice{d}, nil, nil }
+	m.find = func(context.Context) ([]scannerDevice, []diagnostic, error) { return []scannerDevice{d}, nil, nil }
 	m.editDeviceForm()
 	m.verifyDevice()
 	m.Update(m.listen())
@@ -150,7 +150,7 @@ func TestDiscoverySelectionHonorsExplicitProtocol(t *testing.T) {
 				d = w
 				protocol = "escl"
 			}
-			find := func(context.Context) ([]scannerDevice, []string, error) { return []scannerDevice{d}, nil, nil }
+			find := func(context.Context) ([]scannerDevice, []diagnostic, error) { return []scannerDevice{d}, nil, nil }
 			choose := func(context.Context, []scannerDevice) (string, error) { return d.Endpoint, nil }
 			r := commandRequest{command: "info", protocol: protocol, protocolExplicit: true, timeout: time.Second, output: filepath.Join(t.TempDir(), "unused.jpg")}
 			var out, diagnostics bytes.Buffer

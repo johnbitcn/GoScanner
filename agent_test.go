@@ -35,7 +35,7 @@ func agentRun(t *testing.T, ctx context.Context, args []string, find discoveryFu
 
 func TestAgentValidationAndNoInteraction(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	find := func(context.Context) ([]scannerDevice, []string, error) {
+	find := func(context.Context) ([]scannerDevice, []diagnostic, error) {
 		t.Fatal("unexpected discovery")
 		return nil, nil, nil
 	}
@@ -72,13 +72,13 @@ func TestAgentValidationAndNoInteraction(t *testing.T) {
 
 func TestAgentDiscovery(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	result, code := agentRun(t, context.Background(), []string{"discover"}, func(context.Context) ([]scannerDevice, []string, error) {
-		return nil, []string{"partial discovery"}, nil
+	result, code := agentRun(t, context.Background(), []string{"discover"}, func(context.Context) ([]scannerDevice, []diagnostic, error) {
+		return nil, []diagnostic{diagnosticf("Partial discovery.", "发现不完整")}, nil
 	})
 	if code != 0 || result.Devices == nil || len(*result.Devices) != 0 || len(result.Warnings) != 1 {
 		t.Fatalf("%d %+v", code, result)
 	}
-	result, code = agentRun(t, context.Background(), []string{"discover", "--timeout", "1ms"}, func(ctx context.Context) ([]scannerDevice, []string, error) {
+	result, code = agentRun(t, context.Background(), []string{"discover", "--timeout", "1ms"}, func(ctx context.Context) ([]scannerDevice, []diagnostic, error) {
 		<-ctx.Done()
 		return nil, nil, ctx.Err()
 	})
@@ -87,7 +87,7 @@ func TestAgentDiscovery(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	result, code = agentRun(t, ctx, []string{"discover"}, func(ctx context.Context) ([]scannerDevice, []string, error) { return nil, nil, ctx.Err() })
+	result, code = agentRun(t, ctx, []string{"discover"}, func(ctx context.Context) ([]scannerDevice, []diagnostic, error) { return nil, nil, ctx.Err() })
 	if code != 130 || result.Error.Code != "cancelled" {
 		t.Fatalf("%d %+v", code, result)
 	}
@@ -112,7 +112,7 @@ func TestAgentScanAndInfo(t *testing.T) {
 			t.Errorf("unexpected action %s", action)
 		}
 	})
-	find := func(context.Context) ([]scannerDevice, []string, error) {
+	find := func(context.Context) ([]scannerDevice, []diagnostic, error) {
 		t.Fatal("unexpected discovery")
 		return nil, nil, nil
 	}
@@ -121,7 +121,7 @@ func TestAgentScanAndInfo(t *testing.T) {
 		t.Fatalf("%d %+v jobs=%d", code, result, jobs.Load())
 	}
 	for _, ext := range []string{"jpg", "pdf"} {
-		path := filepath.Join(t.TempDir(), "scan."+ext)
+		path := filepath.Join(t.TempDir(), "扫描件."+ext)
 		result, code = agentRun(t, context.Background(), []string{"scan", "--endpoint", c.endpoint, "-o", path}, find)
 		if code != 0 || result.Status != "ok" || result.Pages != 1 || len(result.Files) != 1 || result.Files[0] != path {
 			t.Fatalf("%d %+v", code, result)

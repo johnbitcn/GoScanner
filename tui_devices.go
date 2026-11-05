@@ -111,7 +111,7 @@ func (m *humanModel) verifyDevice() {
 	r.command, r.timeout = "discover", min(r.timeout, 10*time.Second)
 	m.task(func() tea.Msg {
 		defer cancel()
-		filtered := func(ctx context.Context) ([]scannerDevice, []string, error) {
+		filtered := func(ctx context.Context) ([]scannerDevice, []diagnostic, error) {
 			return discoverDeviceIP(ctx, ip.String(), find)
 		}
 		result, _ := executeCommand(ctx, r, filtered, commandHooks{}, io.Discard, io.Discard)

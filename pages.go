@@ -49,7 +49,7 @@ func scanPagesWithEvents(ctx context.Context, c *client, opts options, output st
 			// Finalize completed pages even when the next scan or user wait fails.
 			if len(pages) > 0 {
 				if saveErr := writePDF(output, pages, opts.DPI); saveErr != nil {
-					err = errors.Join(err, fmt.Errorf("保存 PDF 失败；已完成图像保留在 %s：%w", staging, saveErr))
+					err = errors.Join(err, diagnosticf("Cannot save the PDF. Completed images are retained at %q: %w", "保存 PDF 失败；已完成图像保留在 %s：%w", staging, saveErr))
 					emit(scanEvent{kind: "retained", path: staging})
 					return
 				}
@@ -62,7 +62,7 @@ func scanPagesWithEvents(ctx context.Context, c *client, opts options, output st
 			}
 			// Never recursively remove a JPEG staging file retained by a failed scan.
 			if removeErr := os.Remove(staging); removeErr != nil {
-				err = errors.Join(err, fmt.Errorf("暂存图像保留在 %s：%w", staging, removeErr))
+				err = errors.Join(err, diagnosticf("Staged images are retained at %q: %w", "暂存图像保留在 %s：%w", staging, removeErr))
 				emit(scanEvent{kind: "retained", path: staging})
 			}
 		}()
@@ -79,7 +79,7 @@ func scanPagesWithEvents(ctx context.Context, c *client, opts options, output st
 		scanPath := path
 		if pdf {
 			if _, err := os.Lstat(path); err == nil {
-				return errors.New("输出文件已存在，不会覆盖")
+				return diagnosticf("The output file already exists and will not be overwritten.", "输出文件已存在，不会覆盖")
 			} else if !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
@@ -109,21 +109,21 @@ func scanPagesWithEvents(ctx context.Context, c *client, opts options, output st
 			fmt.Fprintf(stdout, "原图保留：%s\n", absolute)
 			emit(scanEvent{kind: "original", path: result.originalPath})
 		}
-		if result.warning != "" {
-			message := fmt.Sprintf("第 %d 页预处理警告：%s；保留原图", page, result.warning)
-			fmt.Fprintln(stderr, message)
-			emit(scanEvent{kind: "warning", message: message})
+		if result.warning != nil {
+			warning := diagnosticf("Page %d preprocessing warning: %s. The original image was retained.", "第 %d 页预处理警告：%s；保留原图", page, result.warning)
+			fmt.Fprintln(stderr, warning)
+			emit(scanEvent{kind: "warning", warning: warning})
 		}
 		for _, warning := range result.processing.Warnings {
-			message := fmt.Sprintf("第 %d 页预处理警告：%s", page, warning)
+			message := diagnosticf("Page %d preprocessing warning: %s", "第 %d 页预处理警告：%s", page, warning)
 			fmt.Fprintln(stderr, message)
-			emit(scanEvent{kind: "warning", message: message})
+			emit(scanEvent{kind: "warning", warning: message})
 		}
 		if result.retainedPath != "" {
 			emit(scanEvent{kind: "retained", path: result.retainedPath})
 		}
 		if err != nil {
-			return fmt.Errorf("扫描失败：%w\n未自动重试；若创建任务时断线，请先检查扫描器状态。", err)
+			return diagnosticf("Scan failed: %w\nThe scan was not automatically retried. If the connection failed during job creation, check the scanner state before retrying.", "扫描失败：%w\n未自动重试；若创建任务时断线，请先检查扫描器状态。", err)
 		}
 		if opts.processor != nil {
 			angle := "不可用"
@@ -158,7 +158,7 @@ func scanPagesWithEvents(ctx context.Context, c *client, opts options, output st
 		}
 		more, err := wait(ctx)
 		if err != nil {
-			return fmt.Errorf("等待换页失败：%w", err)
+			return diagnosticf("Cannot wait for the next page: %w", "等待换页失败：%w", err)
 		}
 		if !more {
 			if !pdf || singlePage {

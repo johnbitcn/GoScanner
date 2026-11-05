@@ -73,7 +73,7 @@ func TestHumanSavedDeviceStillNeedsValidation(t *testing.T) {
 func TestHumanDiscoveryUpdatesSavedListAndKeepsSwitchSelected(t *testing.T) {
 	m := humanTestModel(t)
 	endpoint := m.request.endpoint
-	m.find = func(_ context.Context) ([]scannerDevice, []string, error) {
+	m.find = func(_ context.Context) ([]scannerDevice, []diagnostic, error) {
 		return []scannerDevice{{Endpoint: endpoint, Model: "HP Laser MFP 1188w"}, {Endpoint: "http://192.168.1.9:8018/wsd/scan", Model: "Other scanner"}}, nil, nil
 	}
 	press(m, 'd')

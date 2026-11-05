@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
-	"errors"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -40,17 +39,17 @@ type mimePart struct {
 func imageFromResponse(contentType string, data []byte, format string) ([]byte, error) {
 	kind, params, err := mime.ParseMediaType(contentType)
 	if err != nil {
-		return nil, errors.New("无效的响应 Content-Type")
+		return nil, diagnosticf("Invalid response Content-Type.", "无效的响应 Content-Type")
 	}
 	if kind != "multipart/related" {
 		if _, err := soapResponse(data, "RetrieveImageResponse"); err != nil {
 			return nil, err
 		}
-		return nil, errors.New("图像响应不是 multipart/related")
+		return nil, diagnosticf("The image response is not multipart/related.", "图像响应不是 multipart/related")
 	}
 	boundary := params["boundary"]
 	if boundary == "" || len(boundary) > 70 {
-		return nil, errors.New("MIME 边界缺失或无效")
+		return nil, diagnosticf("The MIME boundary is missing or invalid.", "MIME 边界缺失或无效")
 	}
 	if boundary == "_DPWS_v1.0_MimeBoundary_WSD" {
 		// This HP firmware omits CRLF immediately before MIME delimiters.
@@ -65,34 +64,34 @@ func imageFromResponse(contentType string, data []byte, format string) ([]byte, 
 			break
 		}
 		if err != nil {
-			return nil, errors.New("MIME 响应不完整或格式异常")
+			return nil, diagnosticf("The MIME response is incomplete or malformed.", "MIME 响应不完整或格式异常")
 		}
 		if len(parts) >= 8 {
-			return nil, errors.New("MIME 部件数量超过限制")
+			return nil, diagnosticf("The MIME part count exceeds the limit.", "MIME 部件数量超过限制")
 		}
 		payload, err := io.ReadAll(io.LimitReader(part, maxResponse+1))
 		if err != nil || len(payload) > maxResponse {
-			return nil, errors.New("MIME 部件不完整或过大")
+			return nil, diagnosticf("A MIME part is incomplete or too large.", "MIME 部件不完整或过大")
 		}
 		switch strings.ToLower(strings.TrimSpace(part.Header.Get("Content-Transfer-Encoding"))) {
 		case "", "binary", "8bit", "7bit":
 		case "base64":
 			payload, err = io.ReadAll(base64.NewDecoder(base64.StdEncoding, bytes.NewReader(payload)))
 			if err != nil {
-				return nil, errors.New("无效的 base64 MIME 部件")
+				return nil, diagnosticf("Invalid base64 MIME part.", "无效的 base64 MIME 部件")
 			}
 		default:
-			return nil, errors.New("不支持的 MIME 传输编码")
+			return nil, diagnosticf("Unsupported MIME transfer encoding.", "不支持的 MIME 传输编码")
 		}
 		id := strings.Trim(part.Header.Get("Content-ID"), "<>")
 		if id != "" && seen[id] {
-			return nil, errors.New("MIME Content-ID 重复")
+			return nil, diagnosticf("Duplicate MIME Content-ID.", "MIME Content-ID 重复")
 		}
 		seen[id] = true
 		parts = append(parts, mimePart{id: id, data: payload})
 	}
 	if len(parts) == 0 {
-		return nil, errors.New("MIME 响应没有部件")
+		return nil, diagnosticf("The MIME response contains no parts.", "MIME 响应没有部件")
 	}
 	root := &parts[0]
 	if start := params["start"]; start != "" {
@@ -103,7 +102,7 @@ func imageFromResponse(contentType string, data []byte, format string) ([]byte, 
 			}
 		}
 		if root == nil {
-			return nil, errors.New("MTOM 根部件不存在")
+			return nil, diagnosticf("The MTOM root part does not exist.", "MTOM 根部件不存在")
 		}
 	}
 	response, err := soapResponse(root.data, "RetrieveImageResponse")
@@ -122,32 +121,32 @@ func imageFromResponse(contentType string, data []byte, format string) ([]byte, 
 	}
 	visit(response)
 	if len(includes) != 1 {
-		return nil, errors.New("预期唯一的 XOP 图像引用")
+		return nil, diagnosticf("Expected exactly one XOP image reference.", "预期唯一的 XOP 图像引用")
 	}
 	href := includes[0].attr("href")
 	if !strings.HasPrefix(href, "cid:") {
-		return nil, errors.New("XOP 图像引用不是 cid；不会访问外部 URL")
+		return nil, diagnosticf("The XOP image reference is not a cid reference. External URLs will not be accessed.", "XOP 图像引用不是 cid；不会访问外部 URL")
 	}
 	id, err := url.PathUnescape(strings.TrimPrefix(href, "cid:"))
 	if err != nil || id == "" {
-		return nil, errors.New("无效的 XOP cid 引用")
+		return nil, diagnosticf("Invalid XOP cid reference.", "无效的 XOP cid 引用")
 	}
 	for _, part := range parts {
 		if part.id == id {
 			switch format {
 			case formatJPEG:
 				if !bytes.HasPrefix(part.data, []byte{0xff, 0xd8, 0xff}) || !bytes.HasSuffix(part.data, []byte{0xff, 0xd9}) {
-					return nil, errors.New("附件不是完整的 JPEG")
+					return nil, diagnosticf("The attachment is not a complete JPEG image.", "附件不是完整的 JPEG")
 				}
 			case formatTIFF:
 				if !bytes.HasPrefix(part.data, []byte{'I', 'I', 42, 0}) && !bytes.HasPrefix(part.data, []byte{'M', 'M', 0, 42}) {
-					return nil, errors.New("附件不是 TIFF")
+					return nil, diagnosticf("The attachment is not a TIFF image.", "附件不是 TIFF")
 				}
 			default:
-				return nil, errors.New("不支持的图像格式")
+				return nil, diagnosticf("Unsupported image format.", "不支持的图像格式")
 			}
 			return part.data, nil
 		}
 	}
-	return nil, errors.New("没有找到 XOP 引用的图像部件")
+	return nil, diagnosticf("The image part referenced by XOP was not found.", "没有找到 XOP 引用的图像部件")
 }

@@ -82,7 +82,7 @@ func TestHelpPTY(t *testing.T) {
 			}
 			if tc.agent {
 				var result commandResult
-				if err := json.Unmarshal([]byte(raw), &result); err != nil || result.Status != "ok" || result.Help != renderHelp("scan", 80, false) {
+				if err := json.Unmarshal([]byte(raw), &result); err != nil || result.Status != "ok" || result.Help != renderAgentHelp("scan") {
 					t.Fatalf("Agent must retain stable plain JSON help: %s %v", raw, err)
 				}
 				return

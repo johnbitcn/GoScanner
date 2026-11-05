@@ -4,7 +4,6 @@ package main
 
 import (
 	"encoding/hex"
-	"errors"
 	"net/netip"
 	"sort"
 	"strings"
@@ -33,7 +32,7 @@ func checkedScannerEndpoint(raw, protocol string) (string, error) {
 	case "escl":
 		return checkedESCLEndpoint(raw)
 	default:
-		return "", errors.New("协议必须是 wsd 或 escl")
+		return "", diagnosticf("The protocol must be wsd or escl.", "协议必须是 wsd 或 escl")
 	}
 }
 
@@ -262,7 +261,7 @@ func (d scannerDevice) endpointFor(protocol string) (scannerEndpoint, error) {
 			return e, nil
 		}
 	}
-	return scannerEndpoint{}, errors.New("所选设备未确认支持 " + protocol + "；未切换协议或启动扫描")
+	return scannerEndpoint{}, diagnosticf("Support for protocol %q was not confirmed for the selected scanner. No protocol switch or scan was started.", "所选设备未确认支持 %s；未切换协议或启动扫描", protocol)
 }
 
 func deviceHasEndpoint(d scannerDevice, endpoint string) bool {

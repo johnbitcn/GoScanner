@@ -129,7 +129,7 @@ func TestMissingReferenceDoesNotSelectAnotherDevice(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	writeTestConfig(t, `{"device":{"record_id":"scanner_0123456789abcdef0123456789abcdef"}}`)
 	var calls atomic.Int32
-	find := func(context.Context) ([]scannerDevice, []string, error) { calls.Add(1); return nil, nil, nil }
+	find := func(context.Context) ([]scannerDevice, []diagnostic, error) { calls.Add(1); return nil, nil, nil }
 	var out, diag bytes.Buffer
 	code := runWithDiscovery(context.Background(), []string{"--agent", "info"}, &out, &diag, find)
 	var result commandResult
@@ -243,7 +243,7 @@ func TestFailedReferenceSaveLeavesVerifiedRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := scannerDevice{Protocol: "wsd", Endpoint: c.endpoint}
-	find := func(context.Context) ([]scannerDevice, []string, error) { return []scannerDevice{d}, nil, nil }
+	find := func(context.Context) ([]scannerDevice, []diagnostic, error) { return []scannerDevice{d}, nil, nil }
 	choose := func(context.Context, []scannerDevice) (string, error) { return d.Endpoint, nil }
 	var out, diag bytes.Buffer
 	result, code := executeCommand(context.Background(), commandRequest{command: "info", timeout: time.Second}, find, commandHooks{choose: choose}, &out, &diag)

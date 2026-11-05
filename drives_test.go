@@ -131,7 +131,7 @@ func TestDiscoveryAndInfoRememberDevicesButAgentDoesNot(t *testing.T) {
 		}
 		w.Write(data)
 	})
-	find := func(context.Context) ([]scannerDevice, []string, error) {
+	find := func(context.Context) ([]scannerDevice, []diagnostic, error) {
 		return []scannerDevice{{Endpoint: c.endpoint, Model: "HP Laser MFP 1188w"}}, nil, nil
 	}
 	for _, args := range [][]string{{"--agent", "discover"}, {"--agent", "info", "--endpoint", c.endpoint}} {

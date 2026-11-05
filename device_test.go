@@ -135,7 +135,7 @@ func TestSavedDeviceBypassesDiscovery(t *testing.T) {
 	path := writeConfigForTest(t, cfg)
 	original, _ := os.ReadFile(path)
 	var out, stderr bytes.Buffer
-	code := runWithDiscovery(context.Background(), []string{"info"}, &out, &stderr, func(context.Context) ([]scannerDevice, []string, error) {
+	code := runWithDiscovery(context.Background(), []string{"info"}, &out, &stderr, func(context.Context) ([]scannerDevice, []diagnostic, error) {
 		t.Error("saved device triggered discovery")
 		return nil, nil, errors.New("discovery must not run")
 	})
@@ -151,7 +151,7 @@ func TestSavedDeviceBypassesDiscovery(t *testing.T) {
 func TestDiscoverDoesNotSelectOrSave(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	var out, stderr bytes.Buffer
-	code := runWithDiscovery(context.Background(), []string{"discover"}, &out, &stderr, func(context.Context) ([]scannerDevice, []string, error) {
+	code := runWithDiscovery(context.Background(), []string{"discover"}, &out, &stderr, func(context.Context) ([]scannerDevice, []diagnostic, error) {
 		return []scannerDevice{{Name: "Only scanner", Endpoint: "http://127.0.0.1:8018/wsd/scan"}}, nil, nil
 	})
 	var devices []scannerDevice

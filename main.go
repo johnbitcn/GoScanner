@@ -15,9 +15,9 @@ import (
 	"time"
 )
 
-type discoveryFunc func(context.Context) ([]scannerDevice, []string, error)
+type discoveryFunc func(context.Context) ([]scannerDevice, []diagnostic, error)
 
-var errOutputFormat = errors.New("输出扩展名必须是 .jpg、.jpeg、.tif、.tiff、.png 或 .pdf")
+var errOutputFormat = diagnosticf("The output extension must be .jpg, .jpeg, .tif, .tiff, .png, or .pdf.", "输出扩展名必须是 .jpg、.jpeg、.tif、.tiff、.png 或 .pdf")
 
 type commandRequest struct {
 	command, endpoint, protocol, host, area, output string
@@ -36,7 +36,7 @@ func (r *commandRequest) validateScan() error {
 		return err
 	}
 	if r.opts.DPI <= 0 || (r.opts.Mode != "color" && r.opts.Mode != "gray") {
-		return errors.New("--dpi 必须大于零；扫描模式目前只开放 color、gray")
+		return diagnosticf("--dpi must be greater than zero. The scan mode must be color or gray.", "--dpi 必须大于零；扫描模式目前只开放 color、gray")
 	}
 	switch strings.ToLower(filepath.Ext(r.output)) {
 	case ".jpg", ".jpeg", ".tif", ".tiff", ".png", ".pdf":
@@ -44,7 +44,7 @@ func (r *commandRequest) validateScan() error {
 		return errOutputFormat
 	}
 	if r.singlePage && !strings.EqualFold(filepath.Ext(r.output), ".pdf") {
-		return errors.New("--single-page 仅适用于 PDF 输出；请用 -o 或配置 output.format 选择 PDF")
+		return diagnosticf("--single-page requires PDF output. Select PDF with -o or output.format.", "--single-page 仅适用于 PDF 输出；请用 -o 或配置 output.format 选择 PDF")
 	}
 	r.opts.Area = area
 	return nil
@@ -52,14 +52,14 @@ func (r *commandRequest) validateScan() error {
 
 func parseRequest(args []string, manualDefault bool) (r commandRequest, help string, failure *commandError, code int) {
 	invalid := func(err error) (commandRequest, string, *commandError, int) {
-		return r, "", &commandError{Code: "invalid_arguments", Message: err.Error()}, 2
+		return r, "", newCommandError("invalid_arguments", err), 2
 	}
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		return r, renderHelp("", 80, false), nil, 0
 	}
 	r.command = args[0]
 	if r.command != "info" && r.command != "scan" && r.command != "discover" {
-		return invalid(errors.New("未知命令：使用 discover、info 或 scan"))
+		return invalid(diagnosticf("Unknown command. Use discover, info, or scan.", "未知命令：使用 discover、info 或 scan"))
 	}
 	flags := flag.NewFlagSet(r.command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -109,17 +109,17 @@ func parseRequest(args []string, manualDefault bool) (r commandRequest, help str
 		}
 	})
 	if flags.NArg() != 0 || badAddress || (r.endpoint != "" && addressParts) {
-		return invalid(errors.New("地址不能空置；--endpoint 与 --host、--port、--path 互斥；不能使用多余的位置参数"))
+		return invalid(diagnosticf("The address must not be empty. Do not combine --endpoint with --host, --port, or --path. Extra positional arguments are not supported.", "地址不能空置；--endpoint 与 --host、--port、--path 互斥；不能使用多余的位置参数"))
 	}
 	cfg, err := loadConfig()
 	if err == nil {
 		err = cfg.apply(flags, r.command)
 	}
 	if err != nil {
-		return r, "", &commandError{Code: "invalid_config", Message: err.Error()}, 2
+		return r, "", newCommandError("invalid_config", err), 2
 	}
 	if r.timeout <= 0 {
-		return invalid(errors.New("--timeout / scan.timeout 必须大于零"))
+		return invalid(diagnosticf("--timeout / scan.timeout must be greater than zero.", "--timeout / scan.timeout 必须大于零"))
 	}
 	if r.command == "scan" {
 		if r.output == "" {
@@ -131,7 +131,7 @@ func parseRequest(args []string, manualDefault bool) (r commandRequest, help str
 		if err := r.validateScan(); err != nil {
 			// Preserve the existing unsupported-format exit code.
 			if errors.Is(err, errOutputFormat) {
-				return r, "", &commandError{Code: "invalid_arguments", Message: err.Error()}, 1
+				return r, "", newCommandError("invalid_arguments", err), 1
 			}
 			return invalid(err)
 		}
@@ -141,11 +141,11 @@ func parseRequest(args []string, manualDefault bool) (r commandRequest, help str
 	if cfg.Device.RecordID != "" && !explicit["host"] && !explicit["endpoint"] {
 		r.recordID = cfg.Device.RecordID
 		if explicit["port"] || explicit["path"] || explicit["scheme"] {
-			return invalid(errors.New("记录引用模式下请同时提供 --host，不能仅覆盖端口、路径或 scheme"))
+			return invalid(diagnosticf("Specify --host when overriding a saved scanner record. Port, path, or scheme alone cannot override a record.", "记录引用模式下请同时提供 --host，不能仅覆盖端口、路径或 scheme"))
 		}
 	}
 	if r.protocol != "wsd" && r.protocol != "escl" {
-		return invalid(errors.New("--protocol / device.protocol 必须是 wsd 或 escl"))
+		return invalid(diagnosticf("--protocol / device.protocol must be wsd or escl.", "--protocol / device.protocol 必须是 wsd 或 escl"))
 	}
 	if r.protocol != protocolName(cfg.Device.Protocol) {
 		if !explicit["scheme"] {
@@ -201,7 +201,7 @@ func runWithDiscovery(parent context.Context, args []string, stdout, stderr io.W
 	}
 	result := commandResult{Status: "ok"}
 	if agent && len(args) == 0 {
-		result.fail("invalid_arguments", errors.New("--agent 必须指定 discover、info 或 scan 子命令"))
+		result.fail("invalid_arguments", diagnosticf("--agent requires a discover, info, or scan subcommand.", "--agent 必须指定 discover、info 或 scan 子命令"))
 		return writeResult(stdout, stderr, result, 2, agent)
 	}
 	r, help, failure, code := parseRequest(args, humanTUI)
@@ -209,12 +209,14 @@ func runWithDiscovery(parent context.Context, args []string, stdout, stderr io.W
 		result.Status, result.Error = "error", failure
 	} else if help != "" {
 		result.Help = help
-		if !agent {
+		if agent {
+			result.Help = renderAgentHelp(r.command)
+		} else {
 			width, colored := helpDisplay(stdout)
 			result.Help = renderHelp(r.command, width, colored)
 		}
 	} else if agent && r.manual {
-		result.fail("unsupported_interaction", errors.New("Agent 模式不支持 --manual；请逐次执行 scan"))
+		result.fail("unsupported_interaction", diagnosticf("Agent mode does not support --manual. Run scan separately for each acquisition.", "Agent 模式不支持 --manual；请逐次执行 scan"))
 		code = 2
 	} else if humanTUI {
 		return runTUI(parent, r, stdout, stderr, find)
@@ -227,7 +229,7 @@ func runWithDiscovery(parent context.Context, args []string, stdout, stderr io.W
 			if r.manual {
 				keys, err := openKeyInput()
 				if err != nil {
-					result.fail("terminal_required", fmt.Errorf("手动连续扫描需要交互终端：%w", err))
+					result.fail("terminal_required", diagnosticf("Manual scanning requires an interactive terminal: %w", "手动连续扫描需要交互终端：%w", err))
 					return writeResult(stdout, stderr, result, 1, agent)
 				}
 				defer keys.file.Close()
@@ -268,7 +270,12 @@ func writeResult(stdout, stderr io.Writer, result commandResult, code int, agent
 		_, err = fmt.Fprintln(stderr, result.Error.Message)
 	}
 	if err != nil {
-		fmt.Fprintln(stderr, "输出结果失败：", err)
+		failure := diagnosticf("Cannot write the command result: %w", "输出结果失败： %w", err)
+		if agent {
+			fmt.Fprintln(stderr, agentError(failure))
+		} else {
+			fmt.Fprintln(stderr, failure)
+		}
 		return 1
 	}
 	return code

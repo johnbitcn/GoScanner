@@ -27,7 +27,7 @@ function cleanup() {
 }
 child.on('error', (error) => {
   cleanup();
-  console.error(`Cannot start GoScanner: ${error.message}. Reinstall the complete macOS arm64 npm package; no compilation or native dependencies are required.`);
+  console.error(`Cannot start GoScanner. External error: ${JSON.stringify(error.message)}. Reinstall the complete macOS arm64 npm package; no compilation or native dependencies are required.`);
   process.exitCode = 1;
 });
 child.on('exit', (code, signal) => {

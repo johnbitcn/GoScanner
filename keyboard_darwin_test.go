@@ -62,7 +62,7 @@ func TestManualCLIProcess(t *testing.T) {
 		if arg == "--" {
 			if endpoint := os.Getenv("GOSCANNER_TEST_DISCOVER_ENDPOINT"); endpoint != "" {
 				ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-				find := func(context.Context) ([]scannerDevice, []string, error) {
+				find := func(context.Context) ([]scannerDevice, []diagnostic, error) {
 					return []scannerDevice{{Protocol: "wsd", Endpoint: endpoint, Model: "Mock scanner"}}, nil, nil
 				}
 				code := runWithDiscovery(ctx, os.Args[i+1:], os.Stdout, os.Stderr, find)

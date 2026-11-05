@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/xml"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -79,7 +78,7 @@ func escape(s string) string {
 // parseXML bounds the tree before building it; both protocols consume untrusted XML.
 func parseXML(data []byte) (*element, error) {
 	if len(data) > maxXML {
-		return nil, errors.New("XML 超出大小限制")
+		return nil, diagnosticf("XML exceeds the size limit.", "XML 超出大小限制")
 	}
 	d := xml.NewDecoder(bytes.NewReader(data))
 	var root *element
@@ -95,18 +94,18 @@ func parseXML(data []byte) (*element, error) {
 			break
 		}
 		if err != nil {
-			return nil, errors.New("无效的 XML")
+			return nil, diagnosticf("Invalid XML.", "无效的 XML")
 		}
 		switch t := token.(type) {
 		case xml.StartElement:
 			count++
 			if len(stack) >= 64 || count > 10000 {
-				return nil, errors.New("XML 深度或元素数量超限")
+				return nil, diagnosticf("XML exceeds the depth or element count limit.", "XML 深度或元素数量超限")
 			}
 			node := &element{XMLName: t.Name, Attrs: t.Attr}
 			if len(stack) == 0 {
 				if root != nil {
-					return nil, errors.New("XML 包含多余内容")
+					return nil, diagnosticf("XML contains extra content.", "XML 包含多余内容")
 				}
 				root = node
 			} else {
@@ -124,18 +123,18 @@ func parseXML(data []byte) (*element, error) {
 				f := &stack[len(stack)-1]
 				f.text = append(f.text, t...)
 			} else if len(bytes.TrimSpace(t)) != 0 {
-				return nil, errors.New("XML 包含多余内容")
+				return nil, diagnosticf("XML contains extra content.", "XML 包含多余内容")
 			}
 		case xml.Directive:
-			return nil, errors.New("XML 不允许 DOCTYPE 或指令")
+			return nil, diagnosticf("XML must not contain DOCTYPE declarations or directives.", "XML 不允许 DOCTYPE 或指令")
 		case xml.ProcInst, xml.Comment:
 			if root != nil && len(stack) == 0 {
-				return nil, errors.New("XML 包含多余内容")
+				return nil, diagnosticf("XML contains extra content.", "XML 包含多余内容")
 			}
 		}
 	}
 	if root == nil || len(stack) != 0 {
-		return nil, errors.New("XML 不完整")
+		return nil, diagnosticf("Incomplete XML.", "XML 不完整")
 	}
 	return root, nil
 }
@@ -146,7 +145,7 @@ func soapEnvelope(data []byte) (*element, error) {
 		return nil, err
 	}
 	if root.XMLName != (xml.Name{Space: soapNS, Local: "Envelope"}) {
-		return nil, errors.New("SOAP Envelope 命名空间无效")
+		return nil, diagnosticf("Invalid SOAP Envelope namespace.", "SOAP Envelope 命名空间无效")
 	}
 	body := root.child(soapNS, "Body")
 	if fault := body.child(soapNS, "Fault"); fault != nil {
@@ -156,7 +155,7 @@ func soapEnvelope(data []byte) (*element, error) {
 		if len(message) > 512 {
 			message = message[:512]
 		}
-		return nil, fmt.Errorf("WSD 错误：%s", message)
+		return nil, diagnosticf("WSD fault. Device diagnostic: %q", "WSD 错误：%s", message)
 	}
 	return root, nil
 }
@@ -168,7 +167,7 @@ func soapResponse(data []byte, name string) (*element, error) {
 	}
 	response := root.child(soapNS, "Body").child(scanNS, name)
 	if response == nil {
-		return nil, fmt.Errorf("缺少 SOAP 响应 %s", name)
+		return nil, diagnosticf("Missing SOAP response %q.", "缺少 SOAP 响应 %s", name)
 	}
 	return response, nil
 }
@@ -194,19 +193,19 @@ func newClient(host string) (*client, error) {
 // A discovery reply may only send us back to its own source IP, never another host.
 func checkedEndpoint(raw string, peer netip.Addr) (string, error) {
 	if len(raw) > 4096 {
-		return "", errors.New("WSD 地址超过 4096 字节限制")
+		return "", diagnosticf("The WSD address exceeds the 4096-byte limit.", "WSD 地址超过 4096 字节限制")
 	}
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme != "http" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" {
-		return "", errors.New("WSD 地址必须是无凭据、查询参数或片段的 HTTP URL")
+		return "", diagnosticf("The WSD address must be an HTTP URL without credentials, a query, or a fragment.", "WSD 地址必须是无凭据、查询参数或片段的 HTTP URL")
 	}
 	ip, err := netip.ParseAddr(u.Hostname())
 	if err != nil || ip.IsUnspecified() || ip.IsMulticast() {
-		return "", errors.New("WSD 地址必须使用有效的单播 IP")
+		return "", diagnosticf("The WSD address must use a valid unicast IP address.", "WSD 地址必须使用有效的单播 IP")
 	}
 	ip = ip.Unmap()
 	if peer.IsValid() && ip != peer.Unmap() {
-		return "", errors.New("拒绝访问与发现响应源 IP 不同的地址")
+		return "", diagnosticf("Refusing an address that does not match the discovery response source IP.", "拒绝访问与发现响应源 IP 不同的地址")
 	}
 	port := u.Port()
 	if port == "" {
@@ -214,7 +213,7 @@ func checkedEndpoint(raw string, peer netip.Addr) (string, error) {
 	}
 	n, err := strconv.Atoi(port)
 	if err != nil || n < 1 || n > 65535 {
-		return "", errors.New("WSD 地址端口无效")
+		return "", diagnosticf("Invalid WSD address port.", "WSD 地址端口无效")
 	}
 	u.Host = net.JoinHostPort(ip.String(), strconv.Itoa(n))
 	if u.Path == "" {
@@ -240,7 +239,7 @@ func newProtocolClient(raw, protocol string) (*client, error) {
 	case "escl":
 		endpoint, err = checkedESCLEndpoint(raw)
 	default:
-		return nil, fmt.Errorf("不支持的扫描协议 %q", protocol)
+		return nil, diagnosticf("Unsupported scan protocol %q.", "不支持的扫描协议 %q", protocol)
 	}
 	if err != nil {
 		return nil, err
@@ -293,7 +292,7 @@ func (c *client) post(ctx context.Context, action, payload string) (string, []by
 	req.Header.Set("User-Agent", "WSDAPI")
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return "", nil, fmt.Errorf("%s 请求失败：%w", action, err)
+		return "", nil, diagnosticf("%s request failed: %w", "%s 请求失败：%w", action, err)
 	}
 	defer resp.Body.Close()
 	limit := int64(maxXML)
@@ -302,16 +301,16 @@ func (c *client) post(ctx context.Context, action, payload string) (string, []by
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
-		return "", nil, fmt.Errorf("%s 读取失败：%w", action, err)
+		return "", nil, diagnosticf("Cannot read %s response: %w", "%s 读取失败：%w", action, err)
 	}
 	if int64(len(data)) > limit {
-		return "", nil, errors.New("打印机响应超过大小限制")
+		return "", nil, diagnosticf("The scanner response exceeds the size limit.", "打印机响应超过大小限制")
 	}
 	if resp.StatusCode != http.StatusOK {
 		if _, fault := soapResponse(data, action+"Response"); fault != nil && strings.HasPrefix(fault.Error(), "WSD 错误：") {
 			return "", nil, fault
 		}
-		return "", nil, fmt.Errorf("%s 返回 HTTP %d", action, resp.StatusCode)
+		return "", nil, diagnosticf("%s returned HTTP %d.", "%s 返回 HTTP %d", action, resp.StatusCode)
 	}
 	return resp.Header.Get("Content-Type"), data, nil
 }
@@ -339,7 +338,7 @@ type info struct {
 func positive(node *element) (int, error) {
 	n, err := strconv.ParseInt(node.text(), 10, 32)
 	if err != nil || n <= 0 {
-		return 0, errors.New("扫描能力包含缺失或无效的正整数")
+		return 0, diagnosticf("Scanner capabilities contain a missing or invalid positive integer.", "扫描能力包含缺失或无效的正整数")
 	}
 	return int(n), nil
 }
@@ -386,7 +385,7 @@ func parseInfo(data []byte) (info, error) {
 		SizeUnit: "1/1000 inch",
 	}
 	if platen == nil || result.State == "" || len(result.Formats) == 0 || len(result.Colors) == 0 {
-		return info{}, errors.New("扫描能力或状态不完整，或设备没有平板扫描器")
+		return info{}, diagnosticf("Scanner capabilities or status are incomplete, or the scanner has no flatbed.", "扫描能力或状态不完整，或设备没有平板扫描器")
 	}
 	for _, axis := range []struct {
 		container, name string
@@ -402,7 +401,7 @@ func parseInfo(data []byte) (info, error) {
 			*axis.dst = append(*axis.dst, n)
 		}
 		if len(*axis.dst) == 0 {
-			return info{}, errors.New("扫描能力缺少分辨率")
+			return info{}, diagnosticf("Scanner capabilities contain no resolution.", "扫描能力缺少分辨率")
 		}
 	}
 	for _, field := range []struct {
@@ -421,7 +420,7 @@ func parseInfo(data []byte) (info, error) {
 		*field.dst = n
 	}
 	if result.MinSize.Width > result.MaxSize.Width || result.MinSize.Height > result.MaxSize.Height {
-		return info{}, errors.New("扫描尺寸范围无效")
+		return info{}, diagnosticf("Invalid scan size range.", "扫描尺寸范围无效")
 	}
 	return result, nil
 }

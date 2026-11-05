@@ -81,7 +81,7 @@ func TestDiscoveryBackendsStartTogether(t *testing.T) {
 	started := make(chan string, 2)
 	release := make(chan struct{})
 	backend := func(protocol string) discoveryFunc {
-		return func(ctx context.Context) ([]scannerDevice, []string, error) {
+		return func(ctx context.Context) ([]scannerDevice, []diagnostic, error) {
 			started <- protocol
 			select {
 			case <-release:

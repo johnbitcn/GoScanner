@@ -4,9 +4,8 @@ package main
 
 import (
 	"context"
-	"errors"
 )
 
 func browseESCL(context.Context) ([]dnssdService, error) {
-	return nil, errors.New("eSCL 自动发现需要 macOS Bonjour 和 CGO；仍可手动指定 eSCL 地址")
+	return nil, diagnosticf("eSCL discovery requires macOS Bonjour and CGO. An eSCL address can still be specified explicitly.", "eSCL 自动发现需要 macOS Bonjour 和 CGO；仍可手动指定 eSCL 地址")
 }

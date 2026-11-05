@@ -59,6 +59,33 @@ func TestHelpContentAndLayout(t *testing.T) {
 	}
 }
 
+func TestAgentHelpCoversHumanCommandOptions(t *testing.T) {
+	options := func(sections []helpSection) map[string]bool {
+		result := map[string]bool{}
+		for _, section := range sections {
+			for _, item := range section.items {
+				if strings.HasPrefix(item.label, "-") {
+					result[item.label] = true
+				}
+			}
+		}
+		return result
+	}
+	for _, command := range []string{"", "scan", "info", "discover"} {
+		_, human := helpContent(command)
+		_, agent := agentHelpContent(command)
+		want, got := options(human), options(agent)
+		if len(want) != len(got) {
+			t.Fatalf("%s: human options=%v Agent options=%v", command, want, got)
+		}
+		for option := range want {
+			if !got[option] {
+				t.Fatalf("%s: Agent help missing %s", command, option)
+			}
+		}
+	}
+}
+
 func TestHelpUnicodeWrappingOffsets(t *testing.T) {
 	for _, text := range []string{
 		"扫描仪 IP 地址，不接受主机名或 URL。未配置时可在交互界面选用或添加设备。",
@@ -91,7 +118,7 @@ func TestHelpDoesNotReadConfigOrDiscover(t *testing.T) {
 	if err := os.WriteFile(path, []byte("broken config"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	find := func(context.Context) ([]scannerDevice, []string, error) {
+	find := func(context.Context) ([]scannerDevice, []diagnostic, error) {
 		t.Fatal("help must not discover devices")
 		return nil, nil, nil
 	}
@@ -101,7 +128,11 @@ func TestHelpDoesNotReadConfigOrDiscover(t *testing.T) {
 			t.Fatalf("args=%v output=%q stderr=%q code=%d", args, out.String(), stderr.String(), code)
 		}
 		result, code := agentRun(t, context.Background(), args, find)
-		if code != 0 || result.Status != "ok" || result.Help != out.String() {
+		command := ""
+		if args[0] == "scan" || args[0] == "info" || args[0] == "discover" {
+			command = args[0]
+		}
+		if code != 0 || result.Status != "ok" || result.Help != renderAgentHelp(command) || result.Help == out.String() {
 			t.Fatalf("Agent help changed: %v %+v", args, result)
 		}
 	}

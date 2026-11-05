@@ -84,11 +84,22 @@ func wrapHelp(text string, width int) []helpLine {
 }
 
 func renderHelp(command string, width int, colored bool) string {
+	return renderHelpLanguage(command, width, colored, false)
+}
+
+func renderAgentHelp(command string) string {
+	return renderHelpLanguage(command, 80, false, true)
+}
+
+func renderHelpLanguage(command string, width int, colored, english bool) string {
 	if width <= 0 {
 		width = 80
 	}
 	width = max(8, min(width, 88))
 	summary, sections := helpContent(command)
+	if english {
+		summary, sections = agentHelpContent(command)
+	}
 	paint := func(text string, style lipgloss.Style) string {
 		if colored {
 			return style.Render(text)
@@ -114,7 +125,11 @@ func renderHelp(command string, width int, colored bool) string {
 			}
 			text := item.text
 			if item.defaultValue != "" {
-				text += " 默认：" + item.defaultValue + "。"
+				if english {
+					text += " Default: " + item.defaultValue + "."
+				} else {
+					text += " 默认：" + item.defaultValue + "。"
+				}
 			}
 			defaultStart := len(item.text) + 1
 			body := func(line helpLine) string {

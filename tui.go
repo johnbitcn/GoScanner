@@ -85,7 +85,7 @@ type humanModel struct {
 	width, height         int
 	page                  int
 	latest                string
-	warnings              []string
+	warnings              []diagnostic
 	reply                 chan bool
 	result                commandResult
 	lastResult            commandDoneMsg // Read only after tasks.Wait on an abnormal UI exit.
@@ -235,7 +235,7 @@ func (m *humanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "saved", "original":
 			m.latest = msg.path
 		case "warning":
-			m.notice = msg.message
+			m.notice = msg.warning.Error()
 		}
 		return m, m.listen
 	case nextPageMsg:
@@ -287,7 +287,7 @@ func (m *humanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.generation == m.discoveryGeneration && m.autoDiscover && (m.state == "devices" || m.state == "device-list") {
 			m.discovering = false
 			m.warnings = msg.result.Warnings
-			m.notice = strings.Join(msg.result.Warnings, "；")
+			m.notice = warningText(msg.result.Warnings)
 			if msg.result.Error != nil {
 				m.notice += " " + msg.result.Error.Message
 			}
@@ -499,7 +499,7 @@ func resultText(result commandResult, colored bool) string {
 		lines = append(lines, paint(tuiWarning, "暂存  "+terminalText(path)))
 	}
 	for _, warning := range result.Warnings {
-		lines = append(lines, paint(tuiWarning, "警告  "+terminalText(warning)))
+		lines = append(lines, paint(tuiWarning, "警告  "+terminalText(warning.Error())))
 	}
 	for _, page := range result.Processing {
 		angle := "不可用"

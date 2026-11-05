@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -18,11 +17,11 @@ const (
 )
 
 type processingInfo struct {
-	Changed       bool     `json:"changed"`
-	Detected      bool     `json:"detected"`
-	AngleReliable bool     `json:"angle_reliable"`
-	Angle         float64  `json:"angle"`
-	Warnings      []string `json:"warnings,omitempty"`
+	Changed       bool         `json:"changed"`
+	Detected      bool         `json:"detected"`
+	AngleReliable bool         `json:"angle_reliable"`
+	Angle         float64      `json:"angle"`
+	Warnings      []diagnostic `json:"warnings,omitempty"`
 }
 
 type imageProcessor struct {
@@ -133,7 +132,7 @@ candidates:
 func (p *imageProcessor) Process(picture image.Image) (image.Image, processingInfo, error) {
 	var info processingInfo
 	if picture == nil {
-		return nil, info, fmt.Errorf("preprocess: nil image")
+		return nil, info, diagnosticf("preprocess: nil image", "preprocess: nil image")
 	}
 	if !p.deskew && !p.autocrop {
 		return picture, info, nil
@@ -141,26 +140,26 @@ func (p *imageProcessor) Process(picture image.Image) (image.Image, processingIn
 	b := picture.Bounds()
 	w, h := b.Dx(), b.Dy()
 	if w <= 0 || h <= 0 || int64(w) > maxProcessingPixels/int64(h) {
-		return picture, info, fmt.Errorf("preprocess: invalid or oversized image")
+		return picture, info, diagnosticf("preprocess: invalid or oversized image", "preprocess: invalid or oversized image")
 	}
 	if p.detector == nil {
-		return picture, info, fmt.Errorf("preprocess: detector is closed")
+		return picture, info, diagnosticf("preprocess: detector is closed", "preprocess: detector is closed")
 	}
 	detection, err := p.detector.Detect(picture)
 	if err != nil {
-		return picture, info, fmt.Errorf("preprocess: detection: %w", err)
+		return picture, info, diagnosticf("preprocess: detection: %w", "preprocess: detection: %w", err)
 	}
 	if !validDocument(detection, w, h) {
-		info.Warnings = append(info.Warnings, "无法可靠检测纸张边界，保留原图")
+		info.Warnings = append(info.Warnings, diagnosticf("No reliable document boundary was detected. The original image was retained.", "无法可靠检测纸张边界，保留原图"))
 		return picture, info, nil
 	}
 	info.Detected = true
 	angle, reliable := documentAngle(detection)
 	info.Angle, info.AngleReliable = angle, reliable
 	if p.deskew && !reliable {
-		warning := "边线方向不一致或存在歧义，已跳过旋转"
+		warning := diagnosticf("Document edge directions are inconsistent or ambiguous. Rotation was skipped.", "边线方向不一致或存在歧义，已跳过旋转")
 		if p.autocrop {
-			warning += "；仍按有效边界裁切"
+			warning = diagnosticf("Document edge directions are inconsistent or ambiguous. Rotation was skipped. Cropping used the valid document boundary.", "边线方向不一致或存在歧义，已跳过旋转；仍按有效边界裁切")
 		}
 		info.Warnings = append(info.Warnings, warning)
 	}
@@ -172,7 +171,7 @@ func (p *imageProcessor) Process(picture image.Image) (image.Image, processingIn
 		nw := int(math.Ceil(math.Abs(float64(w)*c) + math.Abs(float64(h)*s)))
 		nh := int(math.Ceil(math.Abs(float64(h)*c) + math.Abs(float64(w)*s)))
 		if int64(nw) > maxProcessingPixels/int64(nh) {
-			return picture, info, fmt.Errorf("preprocess: rotated image exceeds pixel limit")
+			return picture, info, diagnosticf("preprocess: rotated image exceeds pixel limit", "preprocess: rotated image exceeds pixel limit")
 		}
 		// Rotate around the image centre, including any non-zero input bounds.
 		tx := float64(nw)/2 - c*float64(w)/2 - s*float64(h)/2

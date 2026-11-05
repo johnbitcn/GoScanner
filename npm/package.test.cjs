@@ -146,10 +146,22 @@ test('launcher selects bundled assets and respects explicit environment override
   assert.deepEqual(JSON.parse(overrides.stdout), ['/custom model.onnx', '/custom ort.dylib']);
 });
 
-test('launcher reports absent precompiled program without suggesting compilation', (t) => {
-  const result = run(fixture(t));
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /Reinstall the complete macOS arm64 npm package/);
+test('launcher reports an English startup failure and preserves the external path regardless of locale', (t) => {
+  const original = fixture(t);
+  const root = path.join(original, '中文安装目录');
+  fs.mkdirSync(root);
+  fs.cpSync(path.join(original, 'npm'), path.join(root, 'npm'), { recursive: true });
+  let baseline;
+  for (const locale of ['C', 'en_US.UTF-8', 'zh_CN.UTF-8']) {
+    const result = run(root, ['--agent', '--help'], { env: { ...process.env, LANG: locale, LC_ALL: locale } });
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, '');
+    const diagnostic = result.stderr.match(/^Cannot start GoScanner\. External error: (".*")\. Reinstall the complete macOS arm64 npm package/);
+    assert.ok(diagnostic, result.stderr);
+    assert.ok(JSON.parse(diagnostic[1]).includes(root));
+    baseline ??= result.stderr;
+    assert.equal(result.stderr, baseline);
+  }
 });
 
 for (const [signal, status] of [['SIGINT', 130], ['SIGTERM', 143]]) {

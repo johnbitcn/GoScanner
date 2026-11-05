@@ -89,7 +89,7 @@ func TestHumanResultColorsPreservePlainFallback(t *testing.T) {
 	for _, result := range []commandResult{
 		{Status: "ok", Files: []string{"scan.pdf"}, Pages: 1},
 		{Status: "error", Error: &commandError{Code: "scan_failed", Message: "失败\x1b[2J"}},
-		{Status: "partial", Files: []string{"scan.pdf"}, Pages: 1, Originals: []string{"original.jpg"}, Retained: []string{"staging"}, Warnings: []string{"预处理警告"}, Error: &commandError{Code: "scan_failed", Message: "后续页失败"}},
+		{Status: "partial", Files: []string{"scan.pdf"}, Pages: 1, Originals: []string{"original.jpg"}, Retained: []string{"staging"}, Warnings: []diagnostic{diagnosticf("Preprocessing warning.", "预处理警告")}, Error: &commandError{Code: "scan_failed", Message: "后续页失败"}},
 	} {
 		colored, plain := resultText(result, true), resultText(result, false)
 		if !hasTerminalColor(colored) || strings.ContainsRune(plain, '\x1b') || ansi.Strip(colored) != plain {

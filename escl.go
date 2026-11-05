@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/xml"
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -22,15 +21,15 @@ import (
 // checkedESCLEndpoint accepts only direct, credential-free connections to a unicast IP.
 func checkedESCLEndpoint(raw string) (string, error) {
 	if len(raw) > 4096 {
-		return "", errors.New("eSCL 地址过长")
+		return "", diagnosticf("The eSCL address exceeds the length limit.", "eSCL 地址过长")
 	}
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.Opaque != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.RawPath != "" || strings.ContainsAny(u.Path, "\\%") {
-		return "", errors.New("无效的 eSCL 地址")
+		return "", diagnosticf("Invalid eSCL address.", "无效的 eSCL 地址")
 	}
 	ip, err := netip.ParseAddr(u.Hostname())
 	if err != nil || ip.Zone() != "" || ip.IsUnspecified() || ip.IsMulticast() {
-		return "", errors.New("eSCL 地址必须使用有效的单播 IP")
+		return "", diagnosticf("The eSCL address must use a valid unicast IP address.", "eSCL 地址必须使用有效的单播 IP")
 	}
 	port := u.Port()
 	if port == "" {
@@ -42,13 +41,13 @@ func checkedESCLEndpoint(raw string) (string, error) {
 	}
 	n, err := strconv.Atoi(port)
 	if err != nil || n < 1 || n > 65535 {
-		return "", errors.New("eSCL 地址端口无效")
+		return "", diagnosticf("Invalid eSCL address port.", "eSCL 地址端口无效")
 	}
 	if u.Path == "" {
 		u.Path = "/"
 	}
 	if !strings.HasPrefix(u.Path, "/") || path.Clean(u.Path) != strings.TrimSuffix(u.Path, "/") && u.Path != "/" {
-		return "", errors.New("eSCL 地址路径无效")
+		return "", diagnosticf("Invalid eSCL address path.", "eSCL 地址路径无效")
 	}
 	u.Host = net.JoinHostPort(ip.Unmap().String(), strconv.Itoa(n))
 	return u.String(), nil
@@ -58,20 +57,20 @@ func checkedESCLEndpoint(raw string) (string, error) {
 func checkedESCLJobLocation(endpoint, location string) (string, error) {
 	base, err := checkedESCLEndpoint(endpoint)
 	if err != nil || len(location) == 0 || len(location) > 4096 {
-		return "", errors.New("无效的 eSCL 任务地址")
+		return "", diagnosticf("Invalid eSCL job address.", "无效的 eSCL 任务地址")
 	}
 	root, _ := url.Parse(base)
 	root.Path = strings.TrimRight(root.Path, "/") + "/ScanJobs/"
 	ref, err := url.Parse(location)
 	if err != nil || ref.User != nil || ref.RawQuery != "" || ref.ForceQuery || ref.Fragment != "" || ref.Opaque != "" || ref.RawPath != "" || strings.ContainsAny(ref.Path, "\\%") {
-		return "", errors.New("无效的 eSCL 任务地址")
+		return "", diagnosticf("Invalid eSCL job address.", "无效的 eSCL 任务地址")
 	}
 	if ref.Path != "" && path.Clean(ref.Path) != strings.TrimSuffix(ref.Path, "/") {
-		return "", errors.New("eSCL 任务路径无效")
+		return "", diagnosticf("Invalid eSCL job path.", "eSCL 任务路径无效")
 	}
 	for _, segment := range strings.Split(ref.Path, "/") {
 		if segment == "." || segment == ".." {
-			return "", errors.New("eSCL 任务路径包含相对目录")
+			return "", diagnosticf("The eSCL job path contains relative directory components.", "eSCL 任务路径包含相对目录")
 		}
 	}
 	resolved := root.ResolveReference(ref)
@@ -81,12 +80,12 @@ func checkedESCLJobLocation(endpoint, location string) (string, error) {
 	}
 	job, _ := url.Parse(checked)
 	if job.Scheme != root.Scheme || job.Host != root.Host || !strings.HasPrefix(job.Path, root.Path) {
-		return "", errors.New("拒绝跨地址或扫描任务目录的 Location")
+		return "", diagnosticf("Refusing a Location outside the scanner address or scan job directory.", "拒绝跨地址或扫描任务目录的 Location")
 	}
 	id := strings.TrimPrefix(job.Path, root.Path)
 	id = strings.TrimSuffix(id, "/")
 	if id == "" || id == "." || id == ".." || strings.Contains(id, "/") {
-		return "", errors.New("无效的 eSCL 任务编号")
+		return "", diagnosticf("Invalid eSCL job ID.", "无效的 eSCL 任务编号")
 	}
 	return checked, nil
 }
@@ -144,7 +143,7 @@ type esclCapabilities struct {
 func esclInteger(node *element, allowZero bool) (int, error) {
 	n, err := strconv.ParseInt(node.text(), 10, 32)
 	if err != nil || n < 0 || n == 0 && !allowZero {
-		return 0, errors.New("eSCL 能力包含无效整数")
+		return 0, diagnosticf("eSCL capabilities contain an invalid integer.", "eSCL 能力包含无效整数")
 	}
 	return int(n), nil
 }
@@ -158,7 +157,7 @@ func parseESCLRange(node *element) (esclResolutionRange, error) {
 	}
 	r.max, err = esclInteger(node.child(esclNS, "Max"), false)
 	if err != nil || r.max < r.min {
-		return r, errors.New("eSCL 分辨率范围无效")
+		return r, diagnosticf("Invalid eSCL resolution range.", "eSCL 分辨率范围无效")
 	}
 	r.step = 1
 	if step := node.child(esclNS, "Step"); step != nil {
@@ -262,11 +261,11 @@ func parseESCLCapabilities(data []byte) (info, error) {
 		return info{}, err
 	}
 	if root.XMLName != (xml.Name{Space: esclNS, Local: "ScannerCapabilities"}) {
-		return info{}, errors.New("无效的 eSCL ScannerCapabilities")
+		return info{}, diagnosticf("Invalid eSCL ScannerCapabilities.", "无效的 eSCL ScannerCapabilities")
 	}
 	platen := root.child(esclNS, "Platen").child(esclNS, "PlatenInputCaps")
 	if platen == nil {
-		return info{}, errors.New("eSCL 设备未声明平板能力")
+		return info{}, diagnosticf("The eSCL scanner does not declare flatbed capabilities.", "eSCL 设备未声明平板能力")
 	}
 	cap := &esclCapabilities{}
 	for _, field := range []struct {
@@ -283,7 +282,7 @@ func parseESCLCapabilities(data []byte) (info, error) {
 		}
 	}
 	if cap.min.Width > cap.max.Width || cap.min.Height > cap.max.Height {
-		return info{}, errors.New("eSCL 平板尺寸无效")
+		return info{}, diagnosticf("Invalid eSCL flatbed dimensions.", "eSCL 平板尺寸无效")
 	}
 	cap.maxOffset = cap.max
 	for _, field := range []struct {
@@ -299,7 +298,7 @@ func parseESCLCapabilities(data []byte) (info, error) {
 	}
 	profiles := platen.child(esclNS, "SettingProfiles")
 	if profiles == nil {
-		return info{}, errors.New("eSCL 平板缺少 SettingProfiles")
+		return info{}, diagnosticf("The eSCL flatbed has no SettingProfiles.", "eSCL 平板缺少 SettingProfiles")
 	}
 	result := info{escl: cap, SizeUnit: "1/1000 inch", UUID: root.child(esclNS, "UUID").text(), SerialNumber: root.child(pwgNS, "SerialNumber").text(), MakeAndModel: root.child(pwgNS, "MakeAndModel").text()}
 	result.MinSize = size{int((int64(cap.min.Width)*10 + 2) / 3), int((int64(cap.min.Height)*10 + 2) / 3)}
@@ -334,7 +333,7 @@ func parseESCLCapabilities(data []byte) (info, error) {
 		}
 	}
 	if len(cap.profiles) == 0 {
-		return info{}, errors.New("eSCL 平板没有支持的参数组合")
+		return info{}, diagnosticf("The eSCL flatbed has no supported parameter combinations.", "eSCL 平板没有支持的参数组合")
 	}
 	sort.Strings(result.Colors)
 	result.Colors = slices.Compact(result.Colors)
@@ -364,7 +363,7 @@ func (c *client) esclRequest(ctx context.Context, method, target, body string, l
 		return resp.StatusCode, resp.Header, nil, err
 	}
 	if int64(len(data)) > limit {
-		return resp.StatusCode, resp.Header, nil, errors.New("eSCL 响应超过大小限制")
+		return resp.StatusCode, resp.Header, nil, diagnosticf("The eSCL response exceeds the size limit.", "eSCL 响应超过大小限制")
 	}
 	return resp.StatusCode, resp.Header, data, nil
 }
@@ -376,7 +375,7 @@ func (c *client) esclInfo(ctx context.Context) (info, error) {
 		return info{}, err
 	}
 	if status != http.StatusOK {
-		return info{}, fmt.Errorf("ScannerCapabilities 返回 HTTP %d", status)
+		return info{}, diagnosticf("ScannerCapabilities returned HTTP %d.", "ScannerCapabilities 返回 HTTP %d", status)
 	}
 	cap, err := parseESCLCapabilities(data)
 	if err != nil {
@@ -387,25 +386,25 @@ func (c *client) esclInfo(ctx context.Context) (info, error) {
 		return info{}, err
 	}
 	if status != http.StatusOK {
-		return info{}, fmt.Errorf("ScannerStatus 返回 HTTP %d", status)
+		return info{}, diagnosticf("ScannerStatus returned HTTP %d.", "ScannerStatus 返回 HTTP %d", status)
 	}
 	root, err := parseXML(data)
 	if err != nil {
 		return info{}, err
 	}
 	if root.XMLName != (xml.Name{Space: esclNS, Local: "ScannerStatus"}) {
-		return info{}, errors.New("无效的 eSCL ScannerStatus")
+		return info{}, diagnosticf("Invalid eSCL ScannerStatus.", "无效的 eSCL ScannerStatus")
 	}
 	cap.State = root.child(pwgNS, "State").text()
 	if cap.State == "" {
-		return info{}, errors.New("eSCL ScannerStatus 缺少 State")
+		return info{}, diagnosticf("eSCL ScannerStatus has no State.", "eSCL ScannerStatus 缺少 State")
 	}
 	return cap, nil
 }
 
 func esclTicket(cap info, opts options) (string, error) {
 	if cap.State != "Idle" {
-		return "", fmt.Errorf("扫描器尚未就绪：%s", cap.State)
+		return "", diagnosticf("The scanner is not ready. Device state: %q", "扫描器尚未就绪：%s", cap.State)
 	}
 	color := map[string]string{"color": "RGB24", "gray": "Grayscale8"}[opts.Mode]
 	format := opts.Format
@@ -420,7 +419,7 @@ func esclTicket(cap info, opts options) (string, error) {
 		}
 	}
 	if profile == nil {
-		return "", errors.New("eSCL 不支持此色彩、格式和 DPI 参数组合")
+		return "", diagnosticf("eSCL does not support this combination of color mode, format, and DPI.", "eSCL 不支持此色彩、格式和 DPI 参数组合")
 	}
 	r := opts.Area
 	if r == (region{}) {
@@ -428,14 +427,14 @@ func esclTicket(cap info, opts options) (string, error) {
 	} else {
 		for _, n := range []int{r.X, r.Y, r.Width, r.Height} {
 			if n < 0 || int64(n) > math.MaxInt32 {
-				return "", errors.New("扫描区域无效")
+				return "", diagnosticf("Invalid scan area.", "扫描区域无效")
 			}
 		}
 		// Round once in native units, then check native bounds (A4 rounds to 2480 x 3508).
 		r = region{int((int64(r.X)*3 + 5) / 10), int((int64(r.Y)*3 + 5) / 10), int((int64(r.Width)*3 + 5) / 10), int((int64(r.Height)*3 + 5) / 10)}
 	}
 	if r.Width <= 0 || r.Height <= 0 || r.Width < cap.escl.min.Width || r.Height < cap.escl.min.Height || r.X > cap.escl.maxOffset.Width || r.Y > cap.escl.maxOffset.Height || int64(r.X)+int64(r.Width) > int64(cap.escl.max.Width) || int64(r.Y)+int64(r.Height) > int64(cap.escl.max.Height) {
-		return "", errors.New("扫描区域超出 eSCL 平板范围")
+		return "", diagnosticf("The scan area exceeds the eSCL flatbed bounds.", "扫描区域超出 eSCL 平板范围")
 	}
 	ext := ""
 	if slices.Contains(profile.formatsExt, format) {
@@ -450,10 +449,10 @@ func (c *client) esclCreate(ctx context.Context, ticket string) (string, error) 
 		if requestErr != nil {
 			return "", requestErr
 		}
-		return "", fmt.Errorf("ScanJobs 返回 HTTP %d", status)
+		return "", diagnosticf("ScanJobs returned HTTP %d.", "ScanJobs 返回 HTTP %d", status)
 	}
 	if len(headers.Values("Location")) != 1 {
-		return "", errors.New("eSCL 创建响应必须包含唯一 Location")
+		return "", diagnosticf("The eSCL job creation response must contain exactly one Location.", "eSCL 创建响应必须包含唯一 Location")
 	}
 	job, err := checkedESCLJobLocation(c.endpoint, headers.Get("Location"))
 	if err != nil {
@@ -479,7 +478,7 @@ func (c *client) esclRetrieve(ctx context.Context, id string) ([]byte, error) {
 			return data, nil
 		}
 		if status != http.StatusServiceUnavailable {
-			return nil, fmt.Errorf("NextDocument 返回 HTTP %d", status)
+			return nil, diagnosticf("NextDocument returned HTTP %d.", "NextDocument 返回 HTTP %d", status)
 		}
 		delay := 250 * time.Millisecond
 		if seconds, err := strconv.Atoi(headers.Get("Retry-After")); err == nil && seconds > 0 {
@@ -508,5 +507,5 @@ func (c *client) esclCancel(ctx context.Context, id string) error {
 	case http.StatusOK, http.StatusAccepted, http.StatusNoContent, http.StatusNotFound, http.StatusGone:
 		return nil
 	}
-	return fmt.Errorf("取消 eSCL 任务返回 HTTP %d", status)
+	return diagnosticf("Cancelling the eSCL job returned HTTP %d.", "取消 eSCL 任务返回 HTTP %d", status)
 }

@@ -14,7 +14,7 @@ import (
 // writePDF embeds the original JPEG bytes and publishes only a complete document.
 func writePDF(output string, pages []string, dpi int) (err error) {
 	if len(pages) == 0 || dpi <= 0 {
-		return errors.New("PDF 需要至少一页图像和有效的 DPI")
+		return diagnosticf("PDF output requires at least one image page and a valid DPI.", "PDF 需要至少一页图像和有效的 DPI")
 	}
 	file, err := os.CreateTemp(filepath.Dir(output), ".goscanner-*.pdf.part")
 	if err != nil {
@@ -40,7 +40,7 @@ func writePDF(output string, pages []string, dpi int) (err error) {
 	}
 	if err = os.Link(file.Name(), output); err != nil {
 		keep = true
-		return fmt.Errorf("发布 PDF 失败；完整 PDF 保留在 %s：%w", file.Name(), err)
+		return diagnosticf("Cannot publish the PDF. The complete PDF is retained at %q: %w", "发布 PDF 失败；完整 PDF 保留在 %s：%w", file.Name(), err)
 	}
 	return nil
 }
@@ -78,7 +78,7 @@ func renderPDF(file *os.File, pages []string, dpi int) error {
 		}
 		config, decodeErr := jpeg.DecodeConfig(bytes.NewReader(data))
 		if decodeErr != nil || config.Width <= 0 || config.Height <= 0 {
-			return fmt.Errorf("PDF 页面不是有效 JPEG：%s", path)
+			return diagnosticf("The PDF page is not a valid JPEG image: %q", "PDF 页面不是有效 JPEG：%s", path)
 		}
 		space := "/DeviceRGB"
 		switch config.ColorModel {
@@ -86,7 +86,7 @@ func renderPDF(file *os.File, pages []string, dpi int) error {
 			space = "/DeviceGray"
 		case color.YCbCrModel:
 		default:
-			return fmt.Errorf("PDF 仅支持彩色 RGB 和灰度 JPEG：%s", path)
+			return diagnosticf("PDF output supports only RGB and grayscale JPEG images: %q", "PDF 仅支持彩色 RGB 和灰度 JPEG：%s", path)
 		}
 		width, height := float64(config.Width)*72/float64(dpi), float64(config.Height)*72/float64(dpi)
 		id := 3 + 3*i

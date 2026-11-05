@@ -39,7 +39,7 @@ type options struct {
 type scanResult struct {
 	Bytes, Width, Height int
 	processing           processingInfo
-	warning              string
+	warning              error
 	originalPath         string
 	retainedPath         string
 }
@@ -53,19 +53,19 @@ func parseArea(text string) (region, error) {
 	}
 	parts := strings.Split(text, ",")
 	if len(parts) != 4 {
-		return region{}, errors.New("--area 使用 full、a4 或 x,y,width,height（毫米）")
+		return region{}, diagnosticf("--area must be full, a4, or x,y,width,height in millimeters.", "--area 使用 full、a4 或 x,y,width,height（毫米）")
 	}
 	var n [4]int
 	for i, part := range parts {
 		mm, err := strconv.ParseFloat(strings.TrimSpace(part), 64)
 		units := math.Round(mm * 1000 / 25.4)
 		if err != nil || math.IsNaN(units) || math.IsInf(units, 0) || mm < 0 || units > math.MaxInt32 {
-			return region{}, errors.New("扫描区域必须是有限、非负且未超出范围的毫米数值")
+			return region{}, diagnosticf("Scan area values must be finite, nonnegative millimeter values within range.", "扫描区域必须是有限、非负且未超出范围的毫米数值")
 		}
 		n[i] = int(units)
 	}
 	if n[2] <= 0 || n[3] <= 0 {
-		return region{}, errors.New("扫描区域宽高必须大于零")
+		return region{}, diagnosticf("Scan area width and height must be greater than zero.", "扫描区域宽高必须大于零")
 	}
 	return region{n[0], n[1], n[2], n[3]}, nil
 }
@@ -75,23 +75,23 @@ func ticket(cap info, opts options) (string, error) {
 		return esclTicket(cap, opts)
 	}
 	if cap.State != "Idle" {
-		return "", fmt.Errorf("扫描器尚未就绪：%s", cap.State)
+		return "", diagnosticf("The scanner is not ready. Device state: %q", "扫描器尚未就绪：%s", cap.State)
 	}
 	format := opts.Format
 	if format == "" {
 		format = formatJPEG
 	}
 	if (format != formatJPEG && format != formatTIFF) || !slices.Contains(cap.Formats, format) {
-		return "", fmt.Errorf("打印机未声明支持扫描格式 %q", format)
+		return "", diagnosticf("The scanner does not declare support for format %q.", "打印机未声明支持扫描格式 %q", format)
 	}
 	// The device advertises BlackAndWhite1, but its JPEG combination failed live testing.
 	colors := map[string]string{"color": "RGB24", "gray": "Grayscale8"}
 	color, ok := colors[opts.Mode]
 	if !ok || !slices.Contains(cap.Colors, color) {
-		return "", errors.New("扫描色彩模式无效或打印机不支持；使用 color 或 gray")
+		return "", diagnosticf("The scan color mode is invalid or unsupported. Use color or gray.", "扫描色彩模式无效或打印机不支持；使用 color 或 gray")
 	}
 	if !slices.Contains(cap.WidthsDPI, opts.DPI) || !slices.Contains(cap.HeightsDPI, opts.DPI) {
-		return "", fmt.Errorf("打印机不支持 %d DPI", opts.DPI)
+		return "", diagnosticf("The scanner does not support %d DPI.", "打印机不支持 %d DPI", opts.DPI)
 	}
 	r := opts.Area
 	if r == (region{}) {
@@ -99,7 +99,7 @@ func ticket(cap info, opts options) (string, error) {
 	}
 	if r.Width <= 0 || r.Height <= 0 || r.X < 0 || r.Y < 0 || r.Width < cap.MinSize.Width || r.Height < cap.MinSize.Height ||
 		int64(r.X)+int64(r.Width) > int64(cap.MaxSize.Width) || int64(r.Y)+int64(r.Height) > int64(cap.MaxSize.Height) {
-		return "", errors.New("扫描区域超出设备范围或小于最小尺寸")
+		return "", diagnosticf("The scan area exceeds the scanner bounds or is smaller than the minimum size.", "扫描区域超出设备范围或小于最小尺寸")
 	}
 	return fmt.Sprintf(`<w:ScanTicket>
 <w:JobDescription><w:JobName>GoScanner scan</w:JobName><w:JobOriginatingUserName>goscanner</w:JobOriginatingUserName><w:JobInformation>Single-page scan</w:JobInformation></w:JobDescription>
@@ -144,7 +144,7 @@ func (c *client) create(ctx context.Context, scanTicket string) (id, token strin
 		token = node.Text // JobToken is opaque; preserve its whitespace.
 	}
 	if id == "" || strings.TrimSpace(token) == "" {
-		return id, token, errors.New("创建响应缺少有效的 JobId 或 JobToken")
+		return id, token, diagnosticf("The scan job creation response has no valid JobId or JobToken.", "创建响应缺少有效的 JobId 或 JobToken")
 	}
 	return id, token, nil
 }
@@ -192,7 +192,7 @@ func (c *client) scan(ctx context.Context, opts options, output string) (result 
 	case ".tif", ".tiff", ".png":
 		opts.Format = formatTIFF
 	default:
-		return result, errors.New("图像输出扩展名必须是 .jpg、.jpeg、.tif、.tiff 或 .png")
+		return result, diagnosticf("The image output extension must be .jpg, .jpeg, .tif, .tiff, or .png.", "图像输出扩展名必须是 .jpg、.jpeg、.tif、.tiff 或 .png")
 	}
 	unlock, err := lockScanner(c.endpoint)
 	if err != nil {
@@ -223,20 +223,20 @@ func (c *client) scan(ctx context.Context, opts options, output string) (result 
 		return result, err
 	}
 	if _, err := os.Lstat(output); err == nil {
-		return result, errors.New("输出文件已存在，不会覆盖")
+		return result, diagnosticf("The output file already exists and will not be overwritten.", "输出文件已存在，不会覆盖")
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return result, err
 	}
 	if opts.originalPath != "" {
 		if _, err := os.Lstat(opts.originalPath); err == nil {
-			return result, errors.New("原图文件已存在，不会覆盖")
+			return result, diagnosticf("The original image file already exists and will not be overwritten.", "原图文件已存在，不会覆盖")
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return result, err
 		}
 	}
 	file, err := os.CreateTemp(filepath.Dir(output), ".goscanner-*"+ext+".part")
 	if err != nil {
-		return result, fmt.Errorf("不能创建暂存文件：%w", err)
+		return result, diagnosticf("Cannot create a staging file: %w", "不能创建暂存文件：%w", err)
 	}
 	success, keepStaging := false, false
 	jobID := ""
@@ -244,7 +244,7 @@ func (c *client) scan(ctx context.Context, opts options, output string) (result 
 		_ = file.Close()
 		if !keepStaging {
 			if removeErr := os.Remove(file.Name()); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-				err = errors.Join(err, fmt.Errorf("删除暂存文件失败：%w", removeErr))
+				err = errors.Join(err, diagnosticf("Cannot remove a staging file: %w", "删除暂存文件失败：%w", removeErr))
 			}
 		}
 		if !success {
@@ -253,7 +253,7 @@ func (c *client) scan(ctx context.Context, opts options, output string) (result 
 				cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				if cancelErr := c.cancel(cleanup, jobID); cancelErr != nil {
-					err = errors.Join(err, fmt.Errorf("取消任务未确认：%w", cancelErr))
+					err = errors.Join(err, diagnosticf("Scan job cancellation was not confirmed: %w", "取消任务未确认：%w", cancelErr))
 				}
 			}
 		}
@@ -262,7 +262,7 @@ func (c *client) scan(ctx context.Context, opts options, output string) (result 
 	var token string
 	jobID, token, err = c.create(ctx, scanTicket)
 	if err != nil {
-		return result, fmt.Errorf("创建任务结果未确认；不要立即重复扫描：%w", err)
+		return result, diagnosticf("Scan job creation was not confirmed. Do not immediately repeat the scan: %w", "创建任务结果未确认；不要立即重复扫描：%w", err)
 	}
 	payload, err := c.retrieve(ctx, jobID, token, opts.Format)
 	if err != nil {
@@ -276,11 +276,11 @@ func (c *client) scan(ctx context.Context, opts options, output string) (result 
 		wantFormat = "png"
 	}
 	if err != nil || sourceFormat != wantFormat || config.Width <= 0 || config.Height <= 0 || config.Width > 40_000_000/config.Height {
-		return result, errors.New("图像格式或尺寸无效，或超过 4000 万像素")
+		return result, diagnosticf("The image format or dimensions are invalid, or the image exceeds 40 million pixels.", "图像格式或尺寸无效，或超过 4000 万像素")
 	}
 	picture, _, err := image.Decode(bytes.NewReader(payload))
 	if err != nil {
-		return result, errors.New("图像无法完整解码")
+		return result, diagnosticf("The image could not be fully decoded.", "图像无法完整解码")
 	}
 	if opts.originalPath != "" {
 		if err = saveOriginal(opts.originalPath, payload); err != nil {
@@ -295,7 +295,7 @@ func (c *client) scan(ctx context.Context, opts options, output string) (result 
 		var processed image.Image
 		processed, result.processing, err = opts.processor.Process(picture)
 		if err != nil {
-			result.warning = err.Error()
+			result.warning = err
 			result.processing.Changed = false
 			err = nil
 		} else {
@@ -336,7 +336,7 @@ func (c *client) scan(ctx context.Context, opts options, output string) (result 
 	if err = os.Link(file.Name(), output); err != nil {
 		keepStaging = true
 		result.retainedPath = file.Name()
-		return result, fmt.Errorf("发布文件失败；完整图像保留在 %s：%w", file.Name(), err)
+		return result, diagnosticf("Cannot publish the output file. The complete image is retained at %q: %w", "发布文件失败；完整图像保留在 %s：%w", file.Name(), err)
 	}
 	success = true
 	result.Bytes, result.Width, result.Height = int(stat.Size()), picture.Bounds().Dx(), picture.Bounds().Dy()
@@ -346,7 +346,7 @@ func (c *client) scan(ctx context.Context, opts options, output string) (result 
 		defer cancel()
 		if cleanupErr := c.cancel(cleanup, jobID); cleanupErr != nil {
 			result.retainedPath = output
-			return result, fmt.Errorf("扫描图像已保存至 %s；eSCL 任务清理失败，未自动重试扫描：%w", output, cleanupErr)
+			return result, diagnosticf("The scanned image was saved to %q. eSCL job cleanup failed. The scan was not automatically retried: %w", "扫描图像已保存至 %s；eSCL 任务清理失败，未自动重试扫描：%w", output, cleanupErr)
 		}
 	}
 	return result, nil
@@ -370,11 +370,11 @@ func saveOriginal(path string, payload []byte) error {
 		err = e
 	}
 	if err != nil {
-		return fmt.Errorf("保存原图失败: %w", err)
+		return diagnosticf("Cannot save the original image: %w", "保存原图失败: %w", err)
 	}
 	if err = os.Link(f.Name(), path); err != nil {
 		keep = true
-		return fmt.Errorf("原图发布失败；保留在 %s: %w", f.Name(), err)
+		return diagnosticf("Cannot publish the original image. It is retained at %q: %w", "原图发布失败；保留在 %s: %w", f.Name(), err)
 	}
 	return nil
 }

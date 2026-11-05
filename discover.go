@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"encoding/xml"
-	"errors"
 	"fmt"
 	"maps"
 	"net"
@@ -70,7 +69,7 @@ func scoped(node *element, inherited map[string]string) (xmlScope, error) {
 		}
 	}
 	if len(bindings) > 128 {
-		return xmlScope{}, errors.New("XML 命名空间数量超限")
+		return xmlScope{}, diagnosticf("XML exceeds the namespace count limit.", "XML 命名空间数量超限")
 	}
 	return xmlScope{node, bindings}, nil
 }
@@ -96,7 +95,7 @@ func scopedPath(root *element, path ...xml.Name) ([]xmlScope, error) {
 				}
 				next = append(next, child)
 				if len(next) > 256 {
-					return nil, errors.New("XML 元素数量超限")
+					return nil, diagnosticf("XML exceeds the element count limit.", "XML 元素数量超限")
 				}
 			}
 		}
@@ -150,7 +149,7 @@ func parseMatches(data []byte, peer netip.Addr, ids map[string]bool) ([]candidat
 	}
 	header := root.child(soapNS, "Header")
 	if !ids[header.child(addrNS, "RelatesTo").text()] || header.child(addrNS, "Action").text() != discoveryNS+"/ProbeMatches" {
-		return nil, errors.New("响应不属于当前发现请求")
+		return nil, diagnosticf("The response does not match the current discovery request.", "响应不属于当前发现请求")
 	}
 	matches, err := scopedPath(root, xml.Name{Space: soapNS, Local: "Body"}, xml.Name{Space: discoveryNS, Local: "ProbeMatches"}, xml.Name{Space: discoveryNS, Local: "ProbeMatch"})
 	if err != nil {
@@ -194,7 +193,7 @@ func localNetworks() ([]lanNetwork, error) {
 		}
 		addresses, err := iface.Addrs()
 		if err != nil {
-			return nil, fmt.Errorf("读取接口 %s：%w", iface.Name, err)
+			return nil, diagnosticf("Cannot read network interface %q: %w", "读取接口 %s：%w", iface.Name, err)
 		}
 		for _, address := range addresses {
 			prefix, err := netip.ParsePrefix(address.String())
@@ -203,12 +202,12 @@ func localNetworks() ([]lanNetwork, error) {
 			}
 			networks = append(networks, lanNetwork{iface.Name, prefix.Addr(), prefix.Masked()})
 			if len(networks) > 32 {
-				return nil, errors.New("活动 IPv4 局域网地址超过 32 个")
+				return nil, diagnosticf("The number of active IPv4 LAN addresses exceeds 32.", "活动 IPv4 局域网地址超过 32 个")
 			}
 		}
 	}
 	if len(networks) == 0 {
-		return nil, errors.New("没有可用的 IPv4 多播局域网接口")
+		return nil, diagnosticf("No IPv4 multicast LAN interface is available.", "没有可用的 IPv4 多播局域网接口")
 	}
 	return networks, nil
 }
@@ -291,7 +290,7 @@ func probeInterface(ctx context.Context, network lanNetwork, target *net.UDPAddr
 			}
 		}
 	}
-	return errors.New("收到的数据包超过每接口 256 个限制")
+	return diagnosticf("Received packets exceed the limit of 256 per network interface.", "收到的数据包超过每接口 256 个限制")
 }
 
 func metadataDevices(data []byte, source candidate) ([]scannerDevice, error) {
@@ -347,12 +346,12 @@ func metadataDevices(data []byte, source candidate) ([]scannerDevice, error) {
 		}
 	}
 	if len(devices) == 0 {
-		return nil, errors.New("元数据没有响应源 IP 上的 WSD 扫描服务")
+		return nil, diagnosticf("The metadata contains no WSD scan service on the response source IP.", "元数据没有响应源 IP 上的 WSD 扫描服务")
 	}
 	return devices, nil
 }
 
-func discoverWSD(ctx context.Context) ([]scannerDevice, []string, error) {
+func discoverWSD(ctx context.Context) ([]scannerDevice, []diagnostic, error) {
 	networks, err := localNetworks()
 	if err != nil {
 		return nil, nil, err
@@ -361,12 +360,12 @@ func discoverWSD(ctx context.Context) ([]scannerDevice, []string, error) {
 }
 
 // Separating interface enumeration allows the entire pipeline to be tested on loopback.
-func discoverOn(ctx context.Context, networks []lanNetwork, target *net.UDPAddr) ([]scannerDevice, []string, error) {
+func discoverOn(ctx context.Context, networks []lanNetwork, target *net.UDPAddr) ([]scannerDevice, []diagnostic, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
 	if len(networks) == 0 {
-		return nil, nil, errors.New("没有可用的 IPv4 局域网接口")
+		return nil, nil, diagnosticf("No IPv4 LAN interface is available.", "没有可用的 IPv4 局域网接口")
 	}
 	messages, err := discoveryProbes()
 	if err != nil {
@@ -375,14 +374,14 @@ func discoverOn(ctx context.Context, networks []lanNetwork, target *net.UDPAddr)
 	listen, stop := context.WithTimeout(ctx, discoveryWindow)
 	defer stop()
 	packets := make(chan candidate, 64)
-	failures := make(chan string, len(networks))
+	failures := make(chan diagnostic, len(networks))
 	var probes sync.WaitGroup
 	for _, network := range networks {
 		probes.Add(1)
 		go func(n lanNetwork) {
 			defer probes.Done()
 			if err := probeInterface(listen, n, target, messages, packets); err != nil {
-				failures <- fmt.Sprintf("接口 %s：%v", n.name, err)
+				failures <- diagnosticf("Network interface %q: %v", "接口 %s：%v", n.name, err)
 			}
 		}(network)
 	}
@@ -402,7 +401,7 @@ func discoverOn(ctx context.Context, networks []lanNetwork, target *net.UDPAddr)
 		}
 		candidates = append(candidates, packet)
 	}
-	var warnings []string
+	var warnings []diagnostic
 	for warning := range failures {
 		warnings = append(warnings, warning)
 	}
@@ -410,20 +409,20 @@ func discoverOn(ctx context.Context, networks []lanNetwork, target *net.UDPAddr)
 		return nil, warnings, err
 	}
 	if overflow {
-		return nil, warnings, errors.New("发现候选设备超过 64 个限制")
+		return nil, warnings, diagnosticf("Scanner discovery exceeds the limit of 64 candidates.", "发现候选设备超过 64 个限制")
 	}
 	if len(warnings) == len(networks) {
-		return nil, warnings, errors.New("所有局域网接口探测均失败")
+		return nil, warnings, diagnosticf("Probing failed on all LAN interfaces.", "所有局域网接口探测均失败")
 	}
 	return resolveCandidates(ctx, candidates, warnings)
 }
 
-func resolveCandidates(ctx context.Context, candidates []candidate, warnings []string) ([]scannerDevice, []string, error) {
+func resolveCandidates(ctx context.Context, candidates []candidate, warnings []diagnostic) ([]scannerDevice, []diagnostic, error) {
 	// Bound metadata traffic; only the advertising IP is permitted for every URL.
 	jobs := make(chan candidate)
 	type metadataResult struct {
 		devices []scannerDevice
-		warning string
+		warning diagnostic
 	}
 	results := make(chan metadataResult, len(candidates))
 	var workers sync.WaitGroup
@@ -435,7 +434,7 @@ func resolveCandidates(ctx context.Context, candidates []candidate, warnings []s
 				request, cancel := context.WithTimeout(ctx, 2*time.Second)
 				raw, err := checkedEndpoint(source.metadata, source.peer)
 				if !source.peer.IsValid() {
-					err = errors.New("发现响应缺少源 IP")
+					err = diagnosticf("The discovery response has no source IP.", "发现响应缺少源 IP")
 				}
 				var c *client
 				if err == nil {
@@ -451,7 +450,7 @@ func resolveCandidates(ctx context.Context, candidates []candidate, warnings []s
 				}
 				cancel()
 				if err != nil {
-					results <- metadataResult{warning: fmt.Sprintf("设备 %s 元数据验证失败：%v", source.peer, err)}
+					results <- metadataResult{warning: diagnosticf("Scanner %s metadata validation failed: %v", "设备 %s 元数据验证失败：%v", source.peer, err)}
 				} else {
 					results <- metadataResult{devices: devices}
 				}
@@ -472,7 +471,7 @@ func resolveCandidates(ctx context.Context, candidates []candidate, warnings []s
 	devices := make([]scannerDevice, 0)
 	seen := make(map[string]bool)
 	for result := range results {
-		if result.warning != "" {
+		if result.warning.Error() != "" {
 			warnings = append(warnings, result.warning)
 		}
 		for _, device := range result.devices {
@@ -483,6 +482,6 @@ func resolveCandidates(ctx context.Context, candidates []candidate, warnings []s
 		}
 	}
 	sort.Slice(devices, func(i, j int) bool { return devices[i].Endpoint < devices[j].Endpoint })
-	sort.Strings(warnings)
+	sort.Slice(warnings, func(i, j int) bool { return warnings[i].Error() < warnings[j].Error() })
 	return devices, warnings, ctx.Err()
 }

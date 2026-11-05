@@ -119,7 +119,7 @@ func TestESCLTUIFormPreservesProtocol(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	m := newHumanModel(ctx, cancel, commandRequest{command: "info", endpoint: c.endpoint, protocol: "escl", timeout: time.Second}, nil)
 	t.Cleanup(func() { close(m.stopped); cancel(); m.tasks.Wait() })
-	m.find = func(context.Context) ([]scannerDevice, []string, error) {
+	m.find = func(context.Context) ([]scannerDevice, []diagnostic, error) {
 		return []scannerDevice{{Protocol: "escl", Endpoint: c.endpoint}}, nil, nil
 	}
 	m.editDeviceForm()

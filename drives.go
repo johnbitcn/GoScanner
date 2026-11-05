@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -43,7 +42,7 @@ func loadDrives() ([]savedDevice, error) {
 		return nil, err
 	}
 	if !stat.Mode().IsRegular() {
-		return nil, fmt.Errorf("设备信息表 %s 不是普通文件，拒绝读取或替换", path)
+		return nil, diagnosticf("The scanner registry %q is not a regular file. It will not be read or replaced.", "设备信息表 %s 不是普通文件，拒绝读取或替换", path)
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -55,42 +54,42 @@ func loadDrives() ([]savedDevice, error) {
 		return nil, err
 	}
 	if len(data) > maxDrivesBytes {
-		return nil, errors.New("设备信息表超过 1 MiB")
+		return nil, diagnosticf("The scanner registry exceeds 1 MiB.", "设备信息表超过 1 MiB")
 	}
 	var devices []savedDevice
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&devices); err != nil {
-		return nil, fmt.Errorf("解析设备信息表 %s：%w", path, err)
+		return nil, diagnosticf("Cannot parse the scanner registry %q: %w", "解析设备信息表 %s：%w", path, err)
 	}
 	if devices == nil {
-		return nil, errors.New("设备信息表必须是 JSON 数组，空表使用 []")
+		return nil, diagnosticf("The scanner registry must be a JSON array. Use [] for an empty registry.", "设备信息表必须是 JSON 数组，空表使用 []")
 	}
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return nil, errors.New("设备信息表只能包含一个 JSON 数组")
+		return nil, diagnosticf("The scanner registry must contain exactly one JSON array.", "设备信息表只能包含一个 JSON 数组")
 	}
 	seen := make(map[string]bool)
 	for i := range devices {
 		endpoint, err := checkedScannerEndpoint(devices[i].Endpoint, devices[i].Protocol)
 		if err != nil {
-			return nil, fmt.Errorf("设备信息表地址无效：%w", err)
+			return nil, diagnosticf("Invalid scanner registry address: %w", "设备信息表地址无效：%w", err)
 		}
 		devices[i].Endpoint = endpoint
 		if len(devices[i].Endpoints) > 16 {
-			return nil, errors.New("每台设备最多保存 16 个协议地址")
+			return nil, diagnosticf("Each scanner can store at most 16 protocol endpoints.", "每台设备最多保存 16 个协议地址")
 		}
 		for j := range devices[i].Endpoints {
 			e := &devices[i].Endpoints[j]
 			raw, err := checkedScannerEndpoint(e.Endpoint, e.Protocol)
 			if err != nil {
-				return nil, fmt.Errorf("设备备用地址无效：%w", err)
+				return nil, diagnosticf("Invalid alternate scanner endpoint: %w", "设备备用地址无效：%w", err)
 			}
 			e.Endpoint = raw
 			e.Protocol = protocolName(e.Protocol)
 		}
 		if preferred := devices[i].PreferredProtocol; preferred != "" {
 			if preferred != "wsd" && preferred != "escl" {
-				return nil, errors.New("设备首选协议必须是 wsd 或 escl")
+				return nil, diagnosticf("The preferred scanner protocol must be wsd or escl.", "设备首选协议必须是 wsd 或 escl")
 			}
 			e, err := devices[i].scannerDevice.endpointFor(preferred)
 			if err != nil {
@@ -103,7 +102,7 @@ func loadDrives() ([]savedDevice, error) {
 			devices[i].scannerDevice = devices[i].scannerDevice.withEndpoint(e)
 		}
 		if seen[devices[i].Endpoint] {
-			return nil, errors.New("设备信息表包含重复扫描地址")
+			return nil, diagnosticf("The scanner registry contains duplicate scan endpoints.", "设备信息表包含重复扫描地址")
 		}
 		seen[devices[i].Endpoint] = true
 	}
@@ -132,11 +131,11 @@ func validateRecordIDs(devices []savedDevice) error {
 		if d.RecordID != "" {
 			ids = append(ids, d.RecordID)
 		} else if len(ids) != 0 {
-			return errors.New("设备记录别名缺少主 ID")
+			return diagnosticf("A scanner record alias has no primary record ID.", "设备记录别名缺少主 ID")
 		}
 		for _, id := range ids {
 			if !validRecordID(id) || seen[id] {
-				return errors.New("设备记录 ID 格式无效或重复")
+				return diagnosticf("A scanner record ID is invalid or duplicated.", "设备记录 ID 格式无效或重复")
 			}
 			seen[id] = true
 		}
@@ -232,7 +231,7 @@ func updateDrives(change func([]savedDevice) ([]savedDevice, error)) error {
 	}
 	for _, d := range devices {
 		if len(d.Endpoints) > 16 {
-			return errors.New("每台设备最多保存 16 个协议地址，未写入")
+			return diagnosticf("Each scanner can store at most 16 protocol endpoints. No changes were written.", "每台设备最多保存 16 个协议地址，未写入")
 		}
 	}
 	data, err := json.MarshalIndent(devices, "", "  ")
@@ -240,7 +239,7 @@ func updateDrives(change func([]savedDevice) ([]savedDevice, error)) error {
 		return err
 	}
 	if len(data)+1 > maxDrivesBytes {
-		return errors.New("设备信息表超过 1 MiB，未写入")
+		return diagnosticf("The scanner registry exceeds 1 MiB. No changes were written.", "设备信息表超过 1 MiB，未写入")
 	}
 	file, err := os.CreateTemp(filepath.Dir(path), ".drives-*.tmp")
 	if err != nil {
@@ -367,7 +366,7 @@ func mergeSavedDevices(devices, updates []savedDevice) ([]savedDevice, error) {
 				update.RecordID, update.RecordAliases = old.RecordID, old.RecordAliases
 				if old.PreferredProtocol != "" {
 					if _, err := update.scannerDevice.endpointFor(old.PreferredProtocol); err != nil {
-						return nil, errors.New("无法确认原首选协议的关联；保留原记录，请重新发现或确认设备")
+						return nil, diagnosticf("The original preferred protocol association could not be confirmed. The original record was retained. Discover or verify the scanner again.", "无法确认原首选协议的关联；保留原记录，请重新发现或确认设备")
 					}
 					update.PreferredProtocol = old.PreferredProtocol
 				}
@@ -377,7 +376,7 @@ func mergeSavedDevices(devices, updates []savedDevice) ([]savedDevice, error) {
 			continue
 		}
 		if old.PreferredProtocol != "" && update.PreferredProtocol != "" && old.PreferredProtocol != update.PreferredProtocol {
-			return nil, errors.New("设备首选协议冲突；请先统一偏好")
+			return nil, diagnosticf("Conflicting preferred scanner protocols. Resolve the protocol preferences first.", "设备首选协议冲突；请先统一偏好")
 		}
 		mergeRecordIDs(old, update)
 		previousEndpoint := old.Endpoint
@@ -401,7 +400,7 @@ func mergeSavedDevices(devices, updates []savedDevice) ([]savedDevice, error) {
 			}
 			a, b := devices[i], devices[j]
 			if a.PreferredProtocol != "" && b.PreferredProtocol != "" && a.PreferredProtocol != b.PreferredProtocol {
-				return nil, errors.New("设备首选协议冲突；请先统一偏好")
+				return nil, diagnosticf("Conflicting preferred scanner protocols. Resolve the protocol preferences first.", "设备首选协议冲突；请先统一偏好")
 			}
 			mergeRecordIDs(&a, b)
 			a.scannerDevice = mergeScanner(a.scannerDevice, b.scannerDevice)
@@ -438,6 +437,6 @@ func savePreferredProtocol(recordID, protocol string) error {
 			devices[i].scannerDevice = devices[i].scannerDevice.withEndpoint(e)
 			return devices, nil
 		}
-		return nil, errors.New("设备记录已不存在；请重新发现设备")
+		return nil, diagnosticf("The scanner record no longer exists. Discover the scanner again.", "设备记录已不存在；请重新发现设备")
 	})
 }

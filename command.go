@@ -12,6 +12,22 @@ import (
 type commandError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	cause   error
+}
+
+func newCommandError(code string, err error) *commandError {
+	return &commandError{Code: code, Message: err.Error(), cause: err}
+}
+
+func (e commandError) MarshalJSON() ([]byte, error) {
+	message := e.Message
+	if e.cause != nil {
+		message = agentError(e.cause)
+	}
+	return json.Marshal(struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}{e.Code, message})
 }
 
 type commandResult struct {
@@ -21,7 +37,7 @@ type commandResult struct {
 	Pages      int              `json:"pages,omitempty"`
 	Originals  []string         `json:"originals,omitempty"`
 	Retained   []string         `json:"retained,omitempty"`
-	Warnings   []string         `json:"warnings,omitempty"`
+	Warnings   []diagnostic     `json:"warnings,omitempty"`
 	Devices    *[]scannerDevice `json:"devices,omitempty"`
 	Info       *info            `json:"info,omitempty"`
 	Processing []pageProcessing `json:"processing,omitempty"`
@@ -39,14 +55,15 @@ func (r *commandResult) fail(code string, err error) {
 	if len(r.Files) > 0 || len(r.Originals) > 0 || len(r.Retained) > 0 {
 		r.Status = "partial"
 	}
-	r.Error = &commandError{Code: code, Message: err.Error()}
+	r.Error = newCommandError(code, err)
 }
 
 // Events describe completed work, not text printed by a particular interface.
 type scanEvent struct {
-	kind, path, message string
-	page                int
-	processing          processingInfo
+	kind, path string
+	warning    diagnostic
+	page       int
+	processing processingInfo
 }
 
 type commandHooks struct {
@@ -100,7 +117,7 @@ func executeCommand(parent context.Context, r commandRequest, find discoveryFunc
 	}
 	if r.command == "discover" || r.endpoint == "" {
 		if hooks.agent && r.command != "discover" {
-			return fail("device_required", errors.New("未指定扫描仪，也没有默认设备；请先执行 goscanner --agent discover，再使用 --host 或 --endpoint"))
+			return fail("device_required", diagnosticf("No scanner was specified and no default scanner is configured. Run goscanner --agent discover, then specify --host or --endpoint.", "未指定扫描仪，也没有默认设备；请先执行 goscanner --agent discover，再使用 --host 或 --endpoint"))
 		}
 		ctx, cancel := context.WithTimeout(parent, r.timeout)
 		devices, warnings, err := find(ctx)
@@ -110,7 +127,7 @@ func executeCommand(parent context.Context, r commandRequest, find discoveryFunc
 			fmt.Fprintf(stderr, "发现警告：%q\n", warning)
 		}
 		if err != nil {
-			return fail("discovery_failed", fmt.Errorf("发现失败：%w", err))
+			return fail("discovery_failed", diagnosticf("Scanner discovery failed: %w", "发现失败：%w", err))
 		}
 		if !hooks.agent {
 			if err := parent.Err(); err != nil {
@@ -121,7 +138,7 @@ func executeCommand(parent context.Context, r commandRequest, find discoveryFunc
 				updates = append(updates, savedDevice{scannerDevice: device, Discovered: true})
 			}
 			if err := rememberDrives(updates); err != nil {
-				return fail("device_store_failed", fmt.Errorf("保存设备信息表失败：%w", err))
+				return fail("device_store_failed", diagnosticf("Cannot save the scanner registry: %w", "保存设备信息表失败：%w", err))
 			}
 		}
 		saved, err := loadDrives()
@@ -142,7 +159,7 @@ func executeCommand(parent context.Context, r commandRequest, find discoveryFunc
 			return result, 0
 		}
 		if hooks.choose == nil {
-			return fail("device_required", errors.New("需要明确选择扫描仪"))
+			return fail("device_required", diagnosticf("A scanner must be explicitly selected.", "需要明确选择扫描仪"))
 		}
 		endpoint, err := hooks.choose(parent, devices)
 		if err != nil {
@@ -169,7 +186,7 @@ func executeCommand(parent context.Context, r commandRequest, find discoveryFunc
 			break
 		}
 		if !matched {
-			return fail("device_selection_failed", errors.New("选择结果不属于本次发现的设备"))
+			return fail("device_selection_failed", diagnosticf("The selected scanner is not in the current discovery results.", "选择结果不属于本次发现的设备"))
 		}
 		r.endpoint = endpoint
 		r.registerDefault = true
@@ -189,7 +206,7 @@ func executeCommand(parent context.Context, r commandRequest, find discoveryFunc
 			}
 			result.device.RecordID = d.RecordID
 			if err := saveDefaultRecord(ctx, d.RecordID); err != nil {
-				return fmt.Errorf("登记默认设备失败；未启动扫描：%w", err)
+				return diagnosticf("Cannot register the default scanner. No scan was started: %w", "登记默认设备失败；未启动扫描：%w", err)
 			}
 			c.beforeScan = nil
 			fmt.Fprintln(stderr, "已登记默认设备记录：", d.RecordID)
@@ -201,7 +218,7 @@ func executeCommand(parent context.Context, r commandRequest, find discoveryFunc
 		defer cancel()
 		cap, err := c.info(ctx)
 		if err != nil {
-			return fail("info_failed", fmt.Errorf("读取失败：%w", err))
+			return fail("info_failed", diagnosticf("Cannot read scanner information: %w", "读取失败：%w", err))
 		}
 		result.Info = &cap
 		if !hooks.agent {
@@ -210,12 +227,12 @@ func executeCommand(parent context.Context, r commandRequest, find discoveryFunc
 			}
 			d, err := rememberVerifiedDevice(ctx, c, cap)
 			if err != nil {
-				return fail("device_store_failed", fmt.Errorf("保存设备信息表失败：%w", err))
+				return fail("device_store_failed", diagnosticf("Cannot save the scanner registry: %w", "保存设备信息表失败：%w", err))
 			}
 			result.device.RecordID = d.RecordID
 			if r.registerDefault {
 				if err := saveDefaultRecord(ctx, d.RecordID); err != nil {
-					return fail("config_save_failed", fmt.Errorf("登记默认设备失败：%w", err))
+					return fail("config_save_failed", diagnosticf("Cannot register the default scanner: %w", "登记默认设备失败：%w", err))
 				}
 			}
 		}
@@ -242,7 +259,7 @@ func executeCommand(parent context.Context, r commandRequest, find discoveryFunc
 		case "retained":
 			result.Retained = append(result.Retained, path)
 		case "warning":
-			result.Warnings = append(result.Warnings, event.message)
+			result.Warnings = append(result.Warnings, event.warning)
 		case "processed":
 			result.Processing = append(result.Processing, pageProcessing{Page: event.page, processingInfo: event.processing})
 		}

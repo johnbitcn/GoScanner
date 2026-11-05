@@ -29,7 +29,7 @@ func setDeviceFields(t *testing.T, m *humanModel, endpoint string) {
 		t.Fatal(err)
 	}
 	m.deviceInputs[deviceHost].SetValue(device.Host)
-	m.find = func(context.Context) ([]scannerDevice, []string, error) {
+	m.find = func(context.Context) ([]scannerDevice, []diagnostic, error) {
 		return []scannerDevice{{Protocol: "wsd", Endpoint: endpoint}}, nil, nil
 	}
 }
@@ -43,7 +43,7 @@ func TestHumanDeviceFormDefaultsAndInput(t *testing.T) {
 	m := humanTestModel(t)
 	m.request.endpoint = ""
 	m.request.recordID = ""
-	m.find = func(context.Context) ([]scannerDevice, []string, error) {
+	m.find = func(context.Context) ([]scannerDevice, []diagnostic, error) {
 		t.Fatal("discovery must be opt-in")
 		return nil, nil, nil
 	}
@@ -204,7 +204,7 @@ func TestHumanInvalidDeviceFields(t *testing.T) {
 func TestHumanDeviceDiscoveryOptInAndConfirmation(t *testing.T) {
 	m := humanTestModel(t)
 	var finds atomic.Int32
-	m.find = func(context.Context) ([]scannerDevice, []string, error) {
+	m.find = func(context.Context) ([]scannerDevice, []diagnostic, error) {
 		finds.Add(1)
 		return []scannerDevice{{Name: "Only scanner", Model: "Only scanner", Endpoint: m.request.endpoint}}, nil, nil
 	}
@@ -240,7 +240,7 @@ func TestHumanDeviceDiscoveryCancellationAndStaleResults(t *testing.T) {
 	m := humanTestModel(t)
 	started, cancelled := make(chan struct{}), make(chan struct{})
 	endpoint := m.request.endpoint
-	m.find = func(ctx context.Context) ([]scannerDevice, []string, error) {
+	m.find = func(ctx context.Context) ([]scannerDevice, []diagnostic, error) {
 		close(started)
 		<-ctx.Done()
 		close(cancelled)
@@ -257,7 +257,7 @@ func TestHumanDeviceDiscoveryCancellationAndStaleResults(t *testing.T) {
 	if m.autoDiscover || m.discovering || len(m.devices) != 0 || generation == m.discoveryGeneration {
 		t.Fatal("disabled discovery accepted a stale result")
 	}
-	m.find = func(context.Context) ([]scannerDevice, []string, error) {
+	m.find = func(context.Context) ([]scannerDevice, []diagnostic, error) {
 		return []scannerDevice{{Name: "Fresh", Endpoint: endpoint}}, nil, nil
 	}
 	press(m, tea.KeyEnter)

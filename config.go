@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -46,7 +45,7 @@ func defaultConfig() config {
 func configPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("定位配置文件：%w", err)
+		return "", diagnosticf("Cannot locate the configuration file: %w", "定位配置文件：%w", err)
 	}
 	return filepath.Join(home, ".config", "goscanner", "config.json"), nil
 }
@@ -61,7 +60,7 @@ func loadConfig() (config, error) {
 		return defaultConfig(), nil
 	}
 	if err != nil {
-		return defaultConfig(), fmt.Errorf("读取配置文件 %s：%w", path, err)
+		return defaultConfig(), diagnosticf("Cannot read the configuration file %q: %w", "读取配置文件 %s：%w", path, err)
 	}
 	return decodeConfig(data, path)
 }
@@ -73,16 +72,16 @@ func decodeConfig(data []byte, path string) (config, error) {
 	parsed := &c
 	err := decoder.Decode(&parsed)
 	if err == nil && parsed == nil {
-		err = errors.New("顶层必须是 JSON 对象")
+		err = diagnosticf("The top-level value must be a JSON object.", "顶层必须是 JSON 对象")
 	}
 	if err == nil {
 		var extra any
 		if trailing := decoder.Decode(&extra); trailing != io.EOF {
-			err = errors.New("配置文件只能包含一个 JSON 对象")
+			err = diagnosticf("The configuration file must contain exactly one JSON object.", "配置文件只能包含一个 JSON 对象")
 		}
 	}
 	if err != nil {
-		return c, fmt.Errorf("解析配置文件 %s：%w", path, err)
+		return c, diagnosticf("Cannot parse the configuration file %q: %w", "解析配置文件 %s：%w", path, err)
 	}
 	var raw struct {
 		Device map[string]json.RawMessage `json:"device"`
@@ -93,10 +92,10 @@ func decodeConfig(data []byte, path string) (config, error) {
 	if value, present := raw.Device["record_id"]; present {
 		var id string
 		if err := json.Unmarshal(value, &id); err != nil || !validRecordID(id) {
-			return c, errors.New("配置 device.record_id 格式无效")
+			return c, diagnosticf("Invalid configuration device.record_id.", "配置 device.record_id 格式无效")
 		}
 		if len(raw.Device) != 1 {
-			return c, errors.New("device.record_id 不能与旧地址字段混用")
+			return c, diagnosticf("device.record_id must not be combined with legacy address fields.", "device.record_id 不能与旧地址字段混用")
 		}
 		c.Device = deviceConfig{RecordID: id}
 		return c, nil
@@ -124,7 +123,7 @@ func decodeConfig(data []byte, path string) (config, error) {
 func saveDefaultDevice(device deviceConfig) error {
 	if device.RecordID != "" {
 		if !validRecordID(device.RecordID) || device.Host != "" || device.Port != 0 || device.Path != "" || device.Protocol != "" || device.Scheme != "" {
-			return errors.New("默认设备引用无效或与地址混用")
+			return diagnosticf("The default scanner reference is invalid or combined with address fields.", "默认设备引用无效或与地址混用")
 		}
 		devices, err := loadDrives()
 		if err != nil {
@@ -145,7 +144,7 @@ func saveDefaultDevice(device deviceConfig) error {
 		return err
 	}
 	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("配置文件是符号链接；请手动设置 device，拒绝自动替换链接")
+		return diagnosticf("The configuration file is a symbolic link. Set device manually. The link will not be automatically replaced.", "配置文件是符号链接；请手动设置 device，拒绝自动替换链接")
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -218,7 +217,7 @@ func (c config) apply(flags *flag.FlagSet, command string) error {
 	for _, v := range values {
 		if !explicit[v.name] {
 			if err := flags.Set(v.name, v.value); err != nil {
-				return fmt.Errorf("配置 %s：%w", v.key, err)
+				return diagnosticf("Invalid configuration %s: %w", "配置 %s：%w", v.key, err)
 			}
 		}
 	}
@@ -229,20 +228,20 @@ func (c config) outputPath() (string, error) {
 	switch c.Output.Format {
 	case "jpg", "tiff", "png", "pdf":
 	default:
-		return "", errors.New("配置 output.format 必须是 jpg、tiff、png 或 pdf")
+		return "", diagnosticf("Configuration output.format must be jpg, tiff, png, or pdf.", "配置 output.format 必须是 jpg、tiff、png 或 pdf")
 	}
 	dir := c.Output.Directory
 	if dir == "" {
-		return "", errors.New("配置 output.directory 不能为空；使用 . 表示当前工作目录")
+		return "", diagnosticf("Configuration output.directory must not be empty. Use . for the current working directory.", "配置 output.directory 不能为空；使用 . 表示当前工作目录")
 	}
 	if dir == "~" || strings.HasPrefix(dir, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return "", fmt.Errorf("展开 output.directory：%w", err)
+			return "", diagnosticf("Cannot expand output.directory: %w", "展开 output.directory：%w", err)
 		}
 		dir = filepath.Join(home, strings.TrimPrefix(dir, "~"))
 	} else if strings.HasPrefix(dir, "~") {
-		return "", errors.New("配置 output.directory 不支持 ~用户名；请使用绝对路径或 ~/")
+		return "", diagnosticf("Configuration output.directory does not support ~username. Use an absolute path or ~/.", "配置 output.directory 不支持 ~用户名；请使用绝对路径或 ~/")
 	}
 	return filepath.Join(dir, "scan-"+time.Now().Format("20060102-150405")+"."+c.Output.Format), nil
 }

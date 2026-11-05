@@ -9,7 +9,6 @@ import "C"
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 	"unsafe"
@@ -21,11 +20,11 @@ func browseESCL(ctx context.Context) ([]dnssdService, error) {
 	}
 	b := C.scan_open()
 	if b == nil {
-		return nil, fmt.Errorf("Bonjour 内存分配失败")
+		return nil, diagnosticf("Cannot allocate Bonjour discovery memory.", "Bonjour 内存分配失败")
 	}
 	defer C.scan_close(b)
 	if b.error != 0 {
-		return nil, fmt.Errorf("Bonjour 启动失败：%d", int(b.error))
+		return nil, diagnosticf("Cannot start Bonjour discovery: error %d.", "Bonjour 启动失败：%d", int(b.error))
 	}
 	deadline := time.Now().Add(discoveryWindow)
 	for time.Now().Before(deadline) {
@@ -33,7 +32,7 @@ func browseESCL(ctx context.Context) ([]dnssdService, error) {
 			return nil, err
 		}
 		if err := C.scan_poll(b); err != 0 {
-			return nil, fmt.Errorf("Bonjour 发现失败：%d", int(err))
+			return nil, diagnosticf("Bonjour discovery failed: error %d.", "Bonjour 发现失败：%d", int(err))
 		}
 	}
 	var services []dnssdService

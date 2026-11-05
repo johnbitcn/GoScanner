@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"net"
 	"net/netip"
 	"net/url"
@@ -20,17 +19,17 @@ type deviceConfig struct {
 
 func (d deviceConfig) endpoint() (string, error) {
 	if d.RecordID != "" {
-		return "", errors.New("设备记录引用不能用作直接服务地址")
+		return "", diagnosticf("A scanner record reference cannot be used as a direct service address.", "设备记录引用不能用作直接服务地址")
 	}
 	ip, err := netip.ParseAddr(d.Host)
 	if err != nil {
-		return "", errors.New("device.host / --host 必须是 IP 地址，不是 URL 或主机名")
+		return "", diagnosticf("device.host / --host must be an IP address, not a URL or hostname.", "device.host / --host 必须是 IP 地址，不是 URL 或主机名")
 	}
 	if d.Port < 1 || d.Port > 65535 {
-		return "", errors.New("device.port / --port 必须是 1 到 65535 的整数")
+		return "", diagnosticf("device.port / --port must be an integer from 1 to 65535.", "device.port / --port 必须是 1 到 65535 的整数")
 	}
 	if !strings.HasPrefix(d.Path, "/") || strings.ContainsAny(d.Path, "?#\r\n\t ") {
-		return "", errors.New("device.path / --path 必须以 / 开头，不含空白、查询参数或片段")
+		return "", diagnosticf("device.path / --path must start with / and contain no whitespace, query, or fragment.", "device.path / --path 必须以 / 开头，不含空白、查询参数或片段")
 	}
 	scheme := d.Scheme
 	if scheme == "" {

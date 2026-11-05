@@ -4,12 +4,10 @@ package main
 
 import (
 	"context"
-	"errors"
-	"fmt"
 )
 
-var errRecordNotFound = errors.New("默认设备记录已失效；请重新选择设备")
-var errIdentityConflict = errors.New("设备身份与已保存记录冲突；未登记默认设备或提交扫描任务")
+var errRecordNotFound = diagnosticf("The default scanner record is no longer valid. Select a scanner again.", "默认设备记录已失效；请重新选择设备")
+var errIdentityConflict = diagnosticf("Scanner identity conflicts with the saved record. The default scanner was not changed and no scan job was submitted.", "设备身份与已保存记录冲突；未登记默认设备或提交扫描任务")
 
 func identityFree(d scannerDevice) bool {
 	for _, e := range scannerEndpoints(d) {
@@ -65,7 +63,7 @@ func lookupRecord(devices []savedDevice, id string) (savedDevice, error) {
 			return d, nil
 		}
 	}
-	return savedDevice{}, fmt.Errorf("%w：%s", errRecordNotFound, id)
+	return savedDevice{}, diagnosticf("%w: %s", "%w：%s", errRecordNotFound, id)
 }
 
 func ensureStoredRecordIDs() error {

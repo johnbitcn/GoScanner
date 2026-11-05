@@ -11,6 +11,46 @@
 
 `--agent` 必须在子命令前。不会因为输出进入管道而隐式启用 Agent 协议。
 
+## 语言契约
+
+**人类界面支持本地化；面向 Agent 时，项目生成的全部信息必须使用英文。用户、设备及系统／依赖库提供的原始内容不强制翻译。**
+
+Agent 英文边界已实现。人类界面仍保留现有文案，尚未提供语言切换。实现方式、实施前盘点和验证范围见文末“i18n 输出盘点与验收”。
+
+### 按接收方和来源划分
+
+| 内容 | 语言规则 |
+| --- | --- |
+| 人类 TUI、普通 CLI 帮助、状态、提示和错误解释 | 本地化是后续目标；当前保留原有文案 |
+| Agent JSON 的字段名、项目定义的枚举值、状态和错误码 | 固定英文，不参与 i18n |
+| Agent 的 `error.message`、顶层 `warnings`、`processing[].warnings`、`help` 中由项目生成的说明 | 必须使用英文，不受人类界面语言或系统 locale 影响 |
+| Agent 模式的项目 stderr 诊断，包括 stdout 写入失败及 npm 启动失败提示 | 必须使用英文；正常业务错误仍只写入 JSON |
+| 用户输入、文件路径、设备名称、型号、设备状态及协议原始值 | 不作语言翻译；保留既有校验和规范化，不因包含非英文字符而拒绝 |
+| 设备原始诊断、系统及依赖库的原始错误 | 不强制翻译；若保留，必须与项目的英文解释可区分，不能作为项目发出的操作指令 |
+
+英文约束针对信息来源，不是字符集约束。项目的英文说明可以引用中文路径或设备名称；被引用的外部数据不是项目文案。不能检查整个 JSON 是否只含 ASCII 字符来判断合规。
+
+非 TUI 的 `discover`、`info` JSON 同样不进入人类界面的翻译流程：字段名和项目定义的协议值保持英文，设备数据保持其原有语言。它们在非 Agent 模式下的 stderr 提示属于人类展示路径。
+
+### 机器语义与展示边界
+
+- Agent 根据 `status`、`error.code` 和结构化结果字段判断结果，不解析说明文字。英文措辞本身不作为稳定接口。
+- 同一概念使用同一英文术语。事实、建议和操作条件分开表达；不能把“失败”自动解释为“可以安全重试”。
+- 扫描任务是否已提交、文件是否已保存、能否重试等事实不能因语言改变。保留现有退出码、不覆盖文件、不自动重试和清理约定。
+- 业务逻辑及扫描事件表达结果与事实；人类展示路径生成本地化文案，Agent 路径生成固定英文文案。不解析人类日志来生成 JSON，也不通过替换已拼接错误中的中文来实现翻译。
+- 项目内部生成的中文错误不是“外部原始错误”。必须沿调用链处理其项目说明，不能仅添加英文前缀后原样透传。外部原始错误在英文解释中以 `External error: "..."` 引用；设备 WSD Fault 原文以 `Device diagnostic: "..."` 引用。引用中的转义字符用于保留原始内容，不将其解释为项目指令。不新增 JSON 字段。
+- 帮助语言分离后，仍保留 Agent 的 80 列纯文本约定，以及帮助不读配置、不访问设备、不改变终端模式的约定。
+
+当前不引入翻译库、翻译资源文件、语言选择参数、locale 优先级或持久化语言配置。
+
+### 当前实现
+
+- `diagnostic.go` 在诊断生成处分别保存英文和原有人类文案。`Error()` 与 `Unwrap()` 保留人类错误文本和原始错误链，JSON 序列化使用英文。嵌套诊断和 `errors.Join` 分别处理，不解析最终中文字符串。
+- `commandError` 保留内部原因，JSON 的 `message` 使用英文表示；字段名、错误码和退出码不变。顶层及逐页处理警告仍序列化为字符串数组，没有增加协议层级。
+- 警告事件携带诊断，而非已拼接的人类展示文字。TUI 和兼容文本使用原有人类文案，Agent JSON 使用英文。
+- `agent_help.go` 提供独立英文帮助内容，复用人类帮助的排版器。Agent 帮助固定为 80 列无样式文本，不读取配置、不访问设备。
+- stdout 写入失败的项目诊断，以及 npm 启动失败的项目诊断，均使用英文解释并区分外部原始错误。
+
 ## 命令帮助
 
 `goscanner --help` 只显示用法、命令导航、常用示例、全局选项和配置位置。具体参数使用 `goscanner scan --help`、`goscanner info --help` 或 `goscanner discover --help` 查看。
@@ -167,7 +207,7 @@ goscanner --agent scan --host 192.168.1.8 -o document.pdf
 缺少设备：
 
 ```json
-{"status":"error","error":{"code":"device_required","message":"未指定扫描仪，也没有默认设备；请先执行 goscanner --agent discover，再使用 --host 或 --endpoint"}}
+{"status":"error","error":{"code":"device_required","message":"No scanner was specified and no default scanner is configured. Run goscanner --agent discover, then specify --host or --endpoint."}}
 ```
 
 取消或失败时，若已有输出文件、原图或已知暂存文件，则 `status` 为 `partial`，但仍返回非零退出码。`partial` 不保证主输出已生成，应检查 `files`、`originals`、`retained` 和错误正文。
@@ -210,3 +250,38 @@ goscanner --agent scan --host 192.168.1.8 -o document.pdf
 自动测试使用模拟 WSD / eSCL 服务、公开能力响应样本和 Bonjour callback stub，不代替真实设备扫描验收。覆盖 JSON 成功与错误、默认设备只读使用、禁止交互、拒绝覆盖、PDF 部分保存、TUI 状态与参数编辑，以及 macOS 伪终端中的扫描、换页、取消和终端模式恢复。就绪检查覆盖 Idle、忙碌、停止、HTTP／协议错误、超时、参数或源格式不支持、取消和显式重查；伪终端还覆盖配置中的默认设备先忙碌、重查恢复后才允许扫描的流程。
 
 伪终端测试不是实机扫描验证。真实扫描仪、不同终端模拟器和 Linux TUI 尚须单独验证。
+
+## i18n 输出盘点与验收
+
+以下清单保留实施前的输出路径及问题，便于后续人类界面 i18n 查找来源，不代表这些问题仍未修复。路径均相对于仓库根目录。Agent 边界的当前实现见前文，验证范围见本节末尾。
+
+### 输出入口清单
+
+| 输出路径 | 实施前状态与来源 | 处理要求 |
+| --- | --- | --- |
+| `main.go`：`parseRequest`、`runWithDiscovery` | 参数／配置错误通过 `err.Error()` 进入 `error.message`；缺少子命令和禁止交互等错误为项目中文 | 人类说明本地化；Agent 项目说明固定英文。标准库参数解析错误中的用户参数不翻译 |
+| `command.go`：`commandResult.fail`、`executeCommand` | 将共享业务错误直接放入 `error.message`；发现警告直接加入 `warnings` | 在结果展示边界区分项目说明和外部原因，不仅翻译这一层的前缀 |
+| `help.go`、`main.go`：`renderHelp` 及其调用 | 人类帮助与 Agent `help` 共用中文正文；Agent 使用 80 列无样式版本 | 分离语言选择，复用既有布局和无副作用入口 |
+| `main.go`：`runWithDiscovery`、`writeResult` | Agent 执行时丢弃普通进度和诊断；最终 JSON 写入失败时向 stderr 输出“输出结果失败”及底层错误 | 保留正常 stderr 为空的行为；异常路径提供英文项目说明，区分外部错误 |
+| `discover.go`、`escl_discover.go`、`dnssd_darwin.go`、`dnssd_other.go` | 发现流程生成中文错误；`discoverBoth` 拼接协议名、“发现失败”和底层错误，传入顶层 `warnings` | 项目诊断固定英文；设备名称、型号及其他发现元数据不翻译 |
+| `device*.go`、`drives.go`、`config.go`、`lock.go` | 地址校验、设备解析、身份冲突、配置／设备表读写和锁错误进入共享错误链 | 项目原因供人类本地化、供 Agent 用英文说明；路径、记录 ID 和原始系统错误不翻译 |
+| `wsd.go`、`escl.go`、`mime.go` | 项目协议校验、HTTP 状态解释及设备错误混在错误链中；例如 WSD Fault 原文被加上中文前缀 | 英文项目解释与设备原始诊断分开；`info` 中设备返回的状态／能力值不翻译 |
+| `scan.go`、`pages.go`、`pdf.go` | 任务提交、保存、清理和取消错误包含中文安全说明；部分保留路径仍只出现在错误正文 | 保留全部安全含义与数据路径，不因翻译丢失“任务未确认”“勿立即重试”等条件 |
+| `preprocess.go`、`scan.go`、`pages.go` | 中文处理警告进入 `processing[].warnings`；`pages.go` 还加上中文页码／警告前缀，作为事件进入顶层 `warnings` | 两层警告均须处理；事件不携带依赖人类界面语言的最终文案 |
+| `docaligner.go` | 模型与 ONNX Runtime 的项目错误多为英文，并包装文件系统或依赖库错误 | 核对术语和外部错误边界；已有英文不表示整条错误链已合规 |
+| `pages.go`、`command.go`、`device_selection.go`、`keyboard.go` | 非 TUI 的扫描状态、文件说明、发现警告、设备选择和换页提示面向人类，以中文为主 | 人类文案本地化；保留路径和命令参数；不把兼容文本输出改成 Agent 协议 |
+| `tui.go`、`tui_devices.go`、`tui_device_list.go`、`tui_settings.go` | TUI 标签、表单、设置选项、notice、结果及异常退出报告含中文；也显示共享错误和警告 | 本地化项目文案；设置项显示标签可翻译，实际参数值如 `color`、`gray` 不翻译 |
+| `npm/cli.cjs`、`npm/check-runtime.cjs` | 启动器继承子进程 stdio；启动失败时使用英文提示并引用 Node 原始错误。运行库检查也用英文，但属于安装／打包阶段 | npm 启动失败纳入 Agent 英文边界；安装／打包检查不作为扫描结果 JSON。原生库直接写 stderr 的行为尚未运行验证 |
+
+`commandResult`、`scannerDevice`、`info` 和 `processingInfo` 的 JSON 字段名目前已为英文。设备返回值和文件路径不属于翻译文案。仓库开发、打包和发布脚本不属于人类扫描界面的 i18n 范围；本次不修改这些入口。
+
+### 验证与后续范围
+
+- `diagnostic_test.go`：参数错误及所有命令帮助在 `C`、`en_US.UTF-8`、`zh_CN.UTF-8`、`fr_FR.UTF-8` 环境变量下保持英文；帮助为 80 列纯文本。此测试设置 locale 环境变量，不要求本机安装对应语言环境。
+- 同一测试文件覆盖嵌套错误、`errors.Join`、sentinel 和取消／超时错误链，以及发现警告、设备 WSD Fault、配置中的非英文输入、stdout 写入失败、两层警告 JSON 和中文文件路径。源码检查要求共享项目错误保留明确的英文模板，不允许退回无来源区分的错误构造。
+- eSCL 模拟清理失败：完成图像仍保留，结果为 `partial`，诊断保留“不自动重试”的英文安全说明，并检查仅提交一次扫描任务。`agent_test.go` 的模拟扫描也使用中文输出文件名。
+- `command_test.go`：实际扫描事件到 JSON 的顶层／逐页处理警告使用英文；外部处理失败保留原始诊断与设备原图，人类警告仍为原文。
+- `help_test.go`、`help_darwin_test.go` 分别验证人类帮助与 Agent 帮助，不再要求正文相同；保留无配置／设备副作用、宽度、颜色及终端模式检查。
+- `npm/package.test.cjs`：预编译程序尚未启动时，stdout 为空，stderr 为英文项目解释；中文安装路径作为外部数据保留，且不随 locale 环境变量改变。它不是扫描命令的结果 JSON。
+
+人类界面 i18n 仍待实现。届时须同步更新人类文本断言，保留模拟服务、事件顺序及 PTY 行为检查。自动测试不代替真实设备扫描；原生库直接写入的诊断、Linux 终端行为和已发布 npm 包均不在本轮运行验证范围内。

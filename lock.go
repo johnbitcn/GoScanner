@@ -28,7 +28,7 @@ func lockScanner(endpoint string) (func(), error) {
 	if err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		_ = file.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
-			return nil, errors.New("本机已有 GoScanner 进程正在使用该扫描端点")
+			return nil, diagnosticf("Another local GoScanner process is using this scan endpoint.", "本机已有 GoScanner 进程正在使用该扫描端点")
 		}
 		return nil, err
 	}

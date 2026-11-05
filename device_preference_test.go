@@ -139,7 +139,7 @@ func TestProtocolOverrideDoesNotBecomeDefaultDuringDeviceSelection(t *testing.T)
 				}
 			} else {
 				r.endpoint = ""
-				find := func(context.Context) ([]scannerDevice, []string, error) { return []scannerDevice{d}, nil, nil }
+				find := func(context.Context) ([]scannerDevice, []diagnostic, error) { return []scannerDevice{d}, nil, nil }
 				choose := func(context.Context, []scannerDevice) (string, error) { return d.Endpoint, nil }
 				var out, diagnostics bytes.Buffer
 				if result, code := executeCommand(context.Background(), r, find, commandHooks{choose: choose}, &out, &diagnostics); code != 0 {
@@ -174,7 +174,7 @@ func TestIPOnlyCLIUsesDiscoveredPortAndPath(t *testing.T) {
 	}))
 	defer server.Close()
 	endpoint := server.URL + "/vendor/scanner"
-	find := func(context.Context) ([]scannerDevice, []string, error) {
+	find := func(context.Context) ([]scannerDevice, []diagnostic, error) {
 		finds.Add(1)
 		return []scannerDevice{
 			{Protocol: "escl", Endpoint: "http://192.0.2.9:8080/eSCL", ID: "unrelated"},
@@ -227,7 +227,7 @@ func TestManualIPAmbiguityAndCancellationDoNotSelectDevice(t *testing.T) {
 		old := m.request.endpoint
 		m.editDeviceForm()
 		m.deviceInputs[deviceHost].SetValue("192.168.1.9")
-		m.find = func(context.Context) ([]scannerDevice, []string, error) {
+		m.find = func(context.Context) ([]scannerDevice, []diagnostic, error) {
 			return []scannerDevice{
 				{Protocol: "escl", Endpoint: "http://192.168.1.9:8080/vendor", ID: identityUUID},
 				{Protocol: "wsd", Endpoint: "http://192.168.1.9:9000/scan", ID: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"},
@@ -246,7 +246,7 @@ func TestManualIPAmbiguityAndCancellationDoNotSelectDevice(t *testing.T) {
 		m := humanTestModel(t)
 		old := m.request.endpoint
 		started, stopped := make(chan struct{}), make(chan struct{})
-		m.find = func(ctx context.Context) ([]scannerDevice, []string, error) {
+		m.find = func(ctx context.Context) ([]scannerDevice, []diagnostic, error) {
 			close(started)
 			<-ctx.Done()
 			close(stopped)
@@ -267,11 +267,11 @@ func TestManualIPAmbiguityAndCancellationDoNotSelectDevice(t *testing.T) {
 
 func TestIPDiscoveryFailureDoesNotGuessService(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	find := func(context.Context) ([]scannerDevice, []string, error) { return nil, nil, nil }
+	find := func(context.Context) ([]scannerDevice, []diagnostic, error) { return nil, nil, nil }
 	var out, diagnostics bytes.Buffer
 	code := runWithDiscovery(context.Background(), []string{"--agent", "info", "--host", "192.168.1.9"}, &out, &diagnostics, find)
 	var result commandResult
-	if err := json.Unmarshal(out.Bytes(), &result); err != nil || code == 0 || result.Error == nil || !strings.Contains(result.Error.Message, "未猜测端口或路径") {
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil || code == 0 || result.Error == nil || !strings.Contains(result.Error.Message, "No port or path was guessed.") {
 		t.Fatalf("%d %s %v", code, out.String(), err)
 	}
 }
@@ -280,7 +280,7 @@ func TestCancelledIPLookupDoesNotPersistLateResults(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	find := func(context.Context) ([]scannerDevice, []string, error) {
+	find := func(context.Context) ([]scannerDevice, []diagnostic, error) {
 		cancel()
 		return []scannerDevice{{Protocol: "escl", Endpoint: "http://192.168.1.9:8080/vendor", ID: identityUUID}}, nil, nil
 	}
@@ -357,7 +357,7 @@ func TestBareIPRequestDoesNotContainGuessedEndpoint(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	_, _, _, err := resolveRequestDevice(ctx, r, func(context.Context) ([]scannerDevice, []string, error) { return nil, nil, nil })
+	_, _, _, err := resolveRequestDevice(ctx, r, func(context.Context) ([]scannerDevice, []diagnostic, error) { return nil, nil, nil })
 	if err == nil {
 		t.Fatal("undiscovered IP was turned into a scan endpoint")
 	}

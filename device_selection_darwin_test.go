@@ -30,8 +30,8 @@ func TestDeviceSelectionProcess(t *testing.T) {
 	for i, arg := range os.Args {
 		if arg == "--" {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-			code := runWithDiscovery(ctx, os.Args[i+1:], os.Stdout, os.Stderr, func(context.Context) ([]scannerDevice, []string, error) {
-				return devices, []string{"模拟发现警告：仍需明确选择设备"}, nil
+			code := runWithDiscovery(ctx, os.Args[i+1:], os.Stdout, os.Stderr, func(context.Context) ([]scannerDevice, []diagnostic, error) {
+				return devices, []diagnostic{diagnosticf("Simulated discovery warning: explicitly select a scanner.", "模拟发现警告：仍需明确选择设备")}, nil
 			})
 			stop()
 			os.Exit(code)
