@@ -337,7 +337,7 @@ func TestSavedHTTPSAnchorResolvesWithoutRequiredProtocol(t *testing.T) {
 			args = append(args, "--protocol", protocol)
 			want = protocol
 		}
-		r, _, failure, _ := parseRequest(args, false)
+		r, _, failure, _ := parseRequest(args, false, chinese)
 		if failure != nil {
 			t.Fatal(failure)
 		}
@@ -351,7 +351,7 @@ func TestSavedHTTPSAnchorResolvesWithoutRequiredProtocol(t *testing.T) {
 
 func TestBareIPRequestDoesNotContainGuessedEndpoint(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	r, _, failure, _ := parseRequest([]string{"info", "--host", "192.168.1.9"}, false)
+	r, _, failure, _ := parseRequest([]string{"info", "--host", "192.168.1.9"}, false, chinese)
 	if failure != nil || r.host != "192.168.1.9" || r.endpoint != "" {
 		t.Fatalf("%+v %v", r, failure)
 	}

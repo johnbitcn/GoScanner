@@ -61,7 +61,7 @@ func TestStructuredProcessingAndRetainedPDF(t *testing.T) {
 		r := commandRequest{command: "scan", endpoint: c.endpoint, output: filepath.Join(t.TempDir(), "扫描件.jpg"), timeout: time.Second, opts: opts}
 		result, code := executeCommand(context.Background(), r, nil, commandHooks{agent: true}, io.Discard, io.Discard)
 		var out, stderr bytes.Buffer
-		if writeResult(&out, &stderr, result, code, true) != 0 || len(result.Originals) != 1 || len(result.Warnings) != 1 || stderr.Len() != 0 {
+		if writeResult(&out, &stderr, result, code, true, chinese) != 0 || len(result.Originals) != 1 || len(result.Warnings) != 1 || stderr.Len() != 0 {
 			t.Fatalf("result=%+v stderr=%s", result, stderr.String())
 		}
 		var decoded commandResult

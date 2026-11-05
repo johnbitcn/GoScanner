@@ -23,13 +23,17 @@ func TestHelpPTY(t *testing.T) {
 		term, noColor, force string
 		agent                bool
 		colored              bool
+		language             language
 	}{
-		{"wide-color", 140, "xterm-256color", "", "0", false, true},
-		{"normal-color", 80, "xterm-256color", "", "0", false, true},
-		{"narrow-color", 40, "xterm-256color", "", "0", false, true},
-		{"no-color", 80, "xterm-256color", "1", "1", false, false},
-		{"dumb", 80, "dumb", "", "1", false, false},
-		{"agent", 40, "xterm-256color", "", "1", true, false},
+		{"wide-color", 140, "xterm-256color", "", "0", false, true, chinese},
+		{"normal-color", 80, "xterm-256color", "", "0", false, true, chinese},
+		{"narrow-color", 40, "xterm-256color", "", "0", false, true, chinese},
+		{"no-color", 80, "xterm-256color", "1", "1", false, false, chinese},
+		{"dumb", 80, "dumb", "", "1", false, false, chinese},
+		{"agent", 40, "xterm-256color", "", "1", true, false, chinese},
+		{"english-normal", 80, "xterm-256color", "", "0", false, true, english},
+		{"english-narrow", 40, "xterm-256color", "", "0", false, true, english},
+		{"english-no-color", 80, "xterm-256color", "1", "1", false, false, english},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
@@ -38,7 +42,7 @@ func TestHelpPTY(t *testing.T) {
 			if tc.agent {
 				args = append(args, "--agent")
 			}
-			args = append(args, "scan", "--help")
+			args = append(args, "--lang", tc.language.String(), "scan", "--help")
 			cmd := exec.CommandContext(ctx, os.Args[0], args...)
 			cmd.Env = append(os.Environ(), "GOSCANNER_TEST_MANUAL_CHILD=1", "HOME="+t.TempDir(), "TERM="+tc.term, "NO_COLOR="+tc.noColor, "CLICOLOR=1", "CLICOLOR_FORCE="+tc.force)
 			keys, master := testKeyInput(t)
@@ -87,7 +91,7 @@ func TestHelpPTY(t *testing.T) {
 				}
 				return
 			}
-			if ansi.Strip(raw) != renderHelp("scan", min(tc.width, 88), false) {
+			if ansi.Strip(raw) != renderHelp("scan", min(tc.width, 88), false, tc.language) {
 				t.Fatal("actual terminal layout differs from rendered help", raw)
 			}
 			// Defaults can wrap across lines; assert their style without fixing one numeric value.

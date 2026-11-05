@@ -15,7 +15,7 @@ import (
 func TestHelpContentAndLayout(t *testing.T) {
 	for _, command := range []string{"", "scan", "info", "discover"} {
 		for _, width := range []int{24, 40, 60, 71, 72, 80, 88, 140} {
-			plain, colored := renderHelp(command, width, false), renderHelp(command, width, true)
+			plain, colored := renderHelp(command, width, false, chinese), renderHelp(command, width, true, chinese)
 			if strings.ContainsRune(plain, '\x1b') || ansi.Strip(colored) != plain || !hasTerminalColor(colored) {
 				t.Fatalf("style changed content: %s/%d", command, width)
 			}
@@ -29,7 +29,7 @@ func TestHelpContentAndLayout(t *testing.T) {
 			}
 		}
 	}
-	root := renderHelp("", 80, false)
+	root := renderHelp("", 80, false, chinese)
 	if strings.Contains(root, "--dpi") || strings.Contains(root, "--single-page") || !strings.Contains(root, "goscanner <命令> --help") || len(strings.Split(root, "\n")) > 30 {
 		t.Fatal("root help should be a short navigation page", root)
 	}
@@ -39,7 +39,7 @@ func TestHelpContentAndLayout(t *testing.T) {
 		"discover": {"超时", "--timeout DURATION", "-h, --help", "默认：10s。"},
 	}
 	for command, entries := range want {
-		help := renderHelp(command, 80, false)
+		help := renderHelp(command, 80, false, chinese)
 		for _, entry := range entries {
 			if !strings.Contains(help, entry) {
 				t.Fatalf("%s help missing %q", command, entry)
@@ -49,11 +49,11 @@ func TestHelpContentAndLayout(t *testing.T) {
 			t.Fatalf("%s includes unsupported flags", command)
 		}
 	}
-	wide := renderHelp("scan", 80, false)
+	wide := renderHelp("scan", 80, false, chinese)
 	if !strings.Contains(wide, "\n                        选用或添加设备。") {
 		t.Fatal("wrapped descriptions must use hanging indentation", wide)
 	}
-	narrow := renderHelp("scan", 40, false)
+	narrow := renderHelp("scan", 40, false, chinese)
 	if !strings.Contains(narrow, "\n  --port PORT\n    高级地址参数") || strings.Contains(narrow, "\n                        ") {
 		t.Fatal("narrow terminal must use stacked options", narrow)
 	}
@@ -72,7 +72,7 @@ func TestAgentHelpCoversHumanCommandOptions(t *testing.T) {
 		return result
 	}
 	for _, command := range []string{"", "scan", "info", "discover"} {
-		_, human := helpContent(command)
+		_, human := helpContent(command, chinese)
 		_, agent := agentHelpContent(command)
 		want, got := options(human), options(agent)
 		if len(want) != len(got) {

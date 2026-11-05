@@ -84,7 +84,7 @@ func TestScanPages(t *testing.T) {
 					wait = nil
 				}
 				var stdout, stderr bytes.Buffer
-				err := scanPages(ctx, c, defaultOptions(), output, false, 500*time.Millisecond, wait, &stdout, &stderr)
+				err := scanPages(ctx, c, defaultOptions(), output, false, 500*time.Millisecond, wait, &stdout, &stderr, chinese)
 				wantError := scenario != "two-pages" && scenario != "single-page"
 				if (err != nil) != wantError {
 					t.Fatalf("error = %v, wantError = %v", err, wantError)

@@ -685,7 +685,7 @@ func TestESCLCleanupFailureRetainsPageAndStopsManualPages(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	var events []scanEvent
 	wait := func(context.Context) (bool, error) { t.Error("continued after cleanup failure"); return true, nil }
-	err := scanPagesWithEvents(context.Background(), c, defaultOptions(), output, false, time.Second, wait, &stdout, &stderr, func(event scanEvent) { events = append(events, event) })
+	err := scanPagesWithEvents(context.Background(), c, defaultOptions(), output, false, time.Second, wait, &stdout, &stderr, func(event scanEvent) { events = append(events, event) }, chinese)
 	if err == nil || !strings.Contains(err.Error(), "任务清理失败，未自动重试扫描") {
 		t.Fatalf("lost cleanup failure: %v", err)
 	}
@@ -746,7 +746,7 @@ func TestESCLJPEGToPNGWithProcessingPreservesOriginal(t *testing.T) {
 	opts.processor = &imageProcessor{detector: &fakeDetector{detection: rectangle(480, 600, 760, 920, 0)}, deskew: true, autocrop: true}
 	output := filepath.Join(t.TempDir(), "scan.png")
 	var stdout, stderr bytes.Buffer
-	if err := scanPages(context.Background(), c, opts, output, false, 5*time.Second, nil, &stdout, &stderr); err != nil {
+	if err := scanPages(context.Background(), c, opts, output, false, 5*time.Second, nil, &stdout, &stderr, chinese); err != nil {
 		t.Fatal(err)
 	}
 	sourcePath := strings.TrimSuffix(output, ".png") + "-original.jpg"
@@ -840,7 +840,7 @@ func TestESCLManualPagesCleanEachJob(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	waits := 0
 	wait := func(context.Context) (bool, error) { waits++; return waits < 2, nil }
-	if err := scanPages(context.Background(), c, defaultOptions(), output, false, time.Second, wait, &stdout, &stderr); err != nil {
+	if err := scanPages(context.Background(), c, defaultOptions(), output, false, time.Second, wait, &stdout, &stderr, chinese); err != nil {
 		t.Fatal(err)
 	}
 	if posts.Load() != 2 || deletes.Load() != 2 || waits != 2 || active.Load() {

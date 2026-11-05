@@ -143,20 +143,20 @@ func TestESCLConfigAndFlags(t *testing.T) {
 	if err != nil || cfg.Device != d {
 		t.Fatalf("%+v %v", cfg.Device, err)
 	}
-	r, _, failure, _ := parseRequest([]string{"info"}, false)
+	r, _, failure, _ := parseRequest([]string{"info"}, false, chinese)
 	if failure != nil || r.protocol != "escl" || r.endpoint != "https://192.168.1.9:443/eSCL" {
 		t.Fatalf("%+v %v", r, failure)
 	}
-	r, _, failure, _ = parseRequest([]string{"info", "--protocol", "wsd", "--host", "192.168.1.8", "--port", "8018", "--path", "/wsd/scan", "--scheme", "http"}, false)
+	r, _, failure, _ = parseRequest([]string{"info", "--protocol", "wsd", "--host", "192.168.1.8", "--port", "8018", "--path", "/wsd/scan", "--scheme", "http"}, false, chinese)
 	if failure != nil || r.protocol != "wsd" {
 		t.Fatalf("%+v %v", r, failure)
 	}
 	t.Setenv("HOME", t.TempDir())
-	r, _, failure, _ = parseRequest([]string{"info", "--protocol", "escl", "--host", "192.168.1.8"}, false)
+	r, _, failure, _ = parseRequest([]string{"info", "--protocol", "escl", "--host", "192.168.1.8"}, false, chinese)
 	if failure != nil || r.host != "192.168.1.8" || r.endpoint != "" {
 		t.Fatalf("%+v %v", r, failure)
 	}
-	r, _, failure, _ = parseRequest([]string{"info", "--protocol", "escl", "--endpoint", "https://192.168.1.8/eSCL"}, false)
+	r, _, failure, _ = parseRequest([]string{"info", "--protocol", "escl", "--endpoint", "https://192.168.1.8/eSCL"}, false, chinese)
 	if failure != nil || r.endpoint != "https://192.168.1.8/eSCL" {
 		t.Fatalf("%+v %v", r, failure)
 	}

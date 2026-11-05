@@ -45,6 +45,20 @@ goscanner discover --help
 
 在交互终端中，普通命令使用内联 TUI，不进入全屏界面。标准输入或输出不是终端，或 `TERM=dumb` 时，使用普通文本模式；**重定向不会自动启用 Agent 模式**。`NO_COLOR=1` 可关闭颜色。
 
+### 界面语言
+
+人类 TUI、帮助、扫描提示和错误说明支持英文与简体中文：
+
+```bash
+goscanner --lang zh-CN
+goscanner --lang en scan --help
+goscanner scan --lang zh-CN -o 合同.pdf
+```
+
+`--lang` 接受 `auto`、`en`、`zh-CN`，只影响本次运行，不写入配置。默认 `auto` 按 `LC_ALL`、`LC_MESSAGES`、`LANG` 的顺序使用第一个非空值；缺少或不支持的语言回退英文。需要保持此前的中文显示时，显式使用 `--lang zh-CN`。查看帮助时，把语言参数放在 `--help` 前。
+
+Agent 的项目说明始终使用英文，不受 `--lang` 或系统语言影响。设备名称、路径、用户输入和外部原始诊断不强制翻译。完整规则见[界面与 Agent 输出](docs/interfaces.md)。
+
 ### `goscanner`：交互扫描
 
 无参数运行，在交互终端中相当于打开扫描界面：
@@ -165,6 +179,7 @@ goscanner --agent scan --help
 - 只给未登记 IP 时，按 IP 筛选发现结果；没有明确地址，也没有默认设备时，返回 `device_required`，不自动发现或选择设备。
 - 不支持交互式连续换页；每次 `scan` 执行一次扫描。
 - stdout 只返回一个紧凑 JSON 对象，不混入进度日志或颜色。
+- 项目生成的字段、状态、错误说明、警告和帮助固定为英文；外部原始内容不强制翻译。
 - `status` 为 `ok`、`error` 或 `partial`。失败和部分完成返回非零退出码；根据 `files`、`originals`、`retained` 等字段核对实际保留的文件。
 
 成功结果示例（节选）：

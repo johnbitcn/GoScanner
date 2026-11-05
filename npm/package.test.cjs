@@ -164,6 +164,31 @@ test('launcher reports an English startup failure and preserves the external pat
   }
 });
 
+test('launcher startup diagnostics follow human language options and locale precedence', (t) => {
+  const root = fixture(t);
+  for (const { args = [], all = '', messages = '', lang = 'en_US.UTF-8', chinese } of [
+    { chinese: false },
+    { all: 'zh_CN.UTF-8', chinese: true },
+    { all: 'C', messages: 'zh_CN', chinese: false },
+    { messages: 'zh_CN.UTF-8', chinese: true },
+    { lang: 'zh_SG.UTF-8', chinese: true },
+    { lang: 'zh_TW.UTF-8', chinese: false },
+    { args: ['--lang', 'zh-CN', 'scan'], chinese: true },
+    { args: ['scan', '--lang=zh-CN'], chinese: true },
+    { args: ['--lang=zh-CN', 'scan', '--lang=en'], chinese: false },
+    { args: ['scan', '--lang=en'], all: 'zh_CN', chinese: false },
+    { args: ['--lang=zh-CN', 'scan', '--lang=auto'], chinese: false },
+    { args: ['scan', '-o', '--lang', '--help'], chinese: false },
+    { args: ['--help', '--lang=zh-CN'], chinese: false },
+    { args: ['--agent', '--lang=zh-CN', 'scan'], all: 'zh_CN', chinese: false },
+  ]) {
+    const result = run(root, args, { env: { ...process.env, LC_ALL: all, LC_MESSAGES: messages, LANG: lang } });
+    assert.equal(result.status, 1, result.stderr);
+    assert.equal(result.stdout, '');
+    assert.ok(result.stderr.startsWith(chinese ? '无法启动 GoScanner。外部错误：' : 'Cannot start GoScanner. External error: '), JSON.stringify({ args, all, messages, lang, stderr: result.stderr }));
+  }
+});
+
 for (const [signal, status] of [['SIGINT', 130], ['SIGTERM', 143]]) {
   test(`launcher forwards ${signal} and preserves cancellation status`, { timeout: 10000 }, async (t) => {
     const root = fixture(t);

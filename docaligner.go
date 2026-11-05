@@ -62,47 +62,47 @@ func newDocAligner() (documentDetector, error) {
 	}
 	f, err := os.Open(model)
 	if err != nil {
-		return nil, diagnosticf("open DocAligner model %q (set GOSCANNER_MODEL_PATH): %w", "open DocAligner model %q (set GOSCANNER_MODEL_PATH): %w", model, err)
+		return nil, diagnosticf("open DocAligner model %q (set GOSCANNER_MODEL_PATH): %w", "无法打开 DocAligner 模型 %q（可设置 GOSCANNER_MODEL_PATH）：%w", model, err)
 	}
 	h := sha256.New()
 	_, err = io.Copy(h, f)
 	closeErr := f.Close()
 	if err != nil {
-		return nil, diagnosticf("hash model: %w", "hash model: %w", err)
+		return nil, diagnosticf("hash model: %w", "计算模型哈希失败：%w", err)
 	}
 	if closeErr != nil {
 		return nil, closeErr
 	}
 	if fmt.Sprintf("%x", h.Sum(nil)) != docModelHash {
-		return nil, diagnosticf("DocAligner model %q SHA256 mismatch; install the expected model", "DocAligner model %q SHA256 mismatch; install the expected model", model)
+		return nil, diagnosticf("DocAligner model %q SHA256 mismatch; install the expected model", "DocAligner 模型 %q 的 SHA256 不匹配；请安装指定模型", model)
 	}
 	if info, err := os.Stat(lib); err != nil {
-		return nil, diagnosticf("open ONNX Runtime %q (set GOSCANNER_ONNXRUNTIME_PATH): %w", "open ONNX Runtime %q (set GOSCANNER_ONNXRUNTIME_PATH): %w", lib, err)
+		return nil, diagnosticf("open ONNX Runtime %q (set GOSCANNER_ONNXRUNTIME_PATH): %w", "无法打开 ONNX Runtime %q（可设置 GOSCANNER_ONNXRUNTIME_PATH）：%w", lib, err)
 	} else if !info.Mode().IsRegular() {
-		return nil, diagnosticf("ONNX Runtime %q is not a regular file", "ONNX Runtime %q is not a regular file", lib)
+		return nil, diagnosticf("ONNX Runtime %q is not a regular file", "ONNX Runtime %q 不是普通文件", lib)
 	}
 	docEnvironment.Lock()
 	defer docEnvironment.Unlock()
 	if docEnvironment.users == 0 {
 		if ort.IsInitialized() {
-			return nil, diagnosticf("ONNX Runtime environment is already owned by another component", "ONNX Runtime environment is already owned by another component")
+			return nil, diagnosticf("ONNX Runtime environment is already owned by another component", "ONNX Runtime 环境已被其他组件占用")
 		}
 		ort.SetSharedLibraryPath(lib)
 		if err := ort.InitializeEnvironment(); err != nil {
-			return nil, diagnosticf("initialize ONNX Runtime %q: %w", "initialize ONNX Runtime %q: %w", lib, err)
+			return nil, diagnosticf("initialize ONNX Runtime %q: %w", "初始化 ONNX Runtime %q 失败：%w", lib, err)
 		}
 		if ort.GetVersion() != "1.31.1" {
 			version := ort.GetVersion()
 			_ = ort.DestroyEnvironment()
-			return nil, diagnosticf("ONNX Runtime version %s; require 1.31.1", "ONNX Runtime version %s; require 1.31.1", version)
+			return nil, diagnosticf("ONNX Runtime version %s; require 1.31.1", "ONNX Runtime 版本为 %s；需要 1.31.1", version)
 		}
 		if err := ort.DisableTelemetry(); err != nil {
 			_ = ort.DestroyEnvironment()
-			return nil, diagnosticf("disable ONNX Runtime telemetry: %w", "disable ONNX Runtime telemetry: %w", err)
+			return nil, diagnosticf("disable ONNX Runtime telemetry: %w", "关闭 ONNX Runtime 遥测失败：%w", err)
 		}
 		docEnvironment.path = lib
 	} else if lib != docEnvironment.path {
-		return nil, diagnosticf("ONNX Runtime already in use from %q, not %q", "ONNX Runtime already in use from %q, not %q", docEnvironment.path, lib)
+		return nil, diagnosticf("ONNX Runtime already in use from %q, not %q", "ONNX Runtime 已从 %q 加载，不能改用 %q", docEnvironment.path, lib)
 	}
 	docEnvironment.users++
 	d := &docAligner{owned: true}
@@ -117,15 +117,15 @@ func newDocAligner() (documentDetector, error) {
 	}
 	d.session, err = ort.NewAdvancedSession(model, []string{"img"}, []string{"heatmap"}, []ort.Value{d.input}, []ort.Value{d.output}, nil)
 	if err != nil {
-		return fail(diagnosticf("create DocAligner session: %w", "create DocAligner session: %w", err))
+		return fail(diagnosticf("create DocAligner session: %w", "创建 DocAligner 会话失败：%w", err))
 	}
 	// The SHA pins the graph signature; run its named float tensors once instead of loading a metadata-only session.
 	if err = d.session.Run(); err != nil {
-		return fail(diagnosticf("validate DocAligner input/output contract: %w", "validate DocAligner input/output contract: %w", err))
+		return fail(diagnosticf("validate DocAligner input/output contract: %w", "校验 DocAligner 输入／输出约定失败：%w", err))
 	}
 	for _, v := range d.output.GetData() {
 		if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) || v < 0 || v > 1 {
-			return fail(diagnosticf("invalid DocAligner heatmap during preflight", "invalid DocAligner heatmap during preflight"))
+			return fail(diagnosticf("invalid DocAligner heatmap during preflight", "预检查发现 DocAligner 热图无效"))
 		}
 	}
 	return d, nil
@@ -172,7 +172,7 @@ func (d *docAligner) Close() error {
 
 func docInput(img image.Image, dst []float32) error {
 	if img == nil || img.Bounds().Empty() || len(dst) != 3*256*256 {
-		return diagnosticf("invalid DocAligner image or input tensor", "invalid DocAligner image or input tensor")
+		return diagnosticf("invalid DocAligner image or input tensor", "DocAligner 图像或输入张量无效")
 	}
 	b := img.Bounds()
 	data := make([]byte, b.Dx()*b.Dy()*3)
@@ -210,7 +210,7 @@ func docInput(img image.Image, dst []float32) error {
 func docHeatmaps(data []float32, width, height int) (documentDetection, error) {
 	var result documentDetection
 	if len(data) != 4*128*128 || width <= 0 || height <= 0 {
-		return result, diagnosticf("invalid heatmap shape", "invalid heatmap shape")
+		return result, diagnosticf("invalid heatmap shape", "热图形状无效")
 	}
 	for c := 0; c < 4; c++ {
 		heat := gocv.NewMatWithSize(128, 128, gocv.MatTypeCV32F)
@@ -223,7 +223,7 @@ func docHeatmaps(data []float32, width, height int) (documentDetection, error) {
 		for i, v := range data[c*128*128 : (c+1)*128*128] {
 			if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
 				heat.Close()
-				return result, diagnosticf("non-finite heatmap for corner %d", "non-finite heatmap for corner %d", c)
+				return result, diagnosticf("non-finite heatmap for corner %d", "角点 %d 的热图包含非有限数值", c)
 			}
 			values[i] = v
 			if float64(v) > peak {
@@ -276,7 +276,7 @@ func docHeatmaps(data []float32, width, height int) (documentDetection, error) {
 		}
 		contours.Close()
 		if maxArea == 0 {
-			return result, diagnosticf("missing heatmap corner %d (peak %g)", "missing heatmap corner %d (peak %g)", c, peak)
+			return result, diagnosticf("missing heatmap corner %d (peak %g)", "热图缺少角点 %d（峰值 %g）", c, peak)
 		}
 		result.Corners[c] = center
 	}
@@ -286,13 +286,13 @@ func (d *docAligner) Detect(img image.Image) (documentDetection, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.session == nil {
-		return documentDetection{}, diagnosticf("DocAligner is closed", "DocAligner is closed")
+		return documentDetection{}, diagnosticf("DocAligner is closed", "DocAligner 已关闭")
 	}
 	if err := docInput(img, d.input.GetData()); err != nil {
 		return documentDetection{}, err
 	}
 	if err := d.session.Run(); err != nil {
-		return documentDetection{}, diagnosticf("DocAligner inference: %w", "DocAligner inference: %w", err)
+		return documentDetection{}, diagnosticf("DocAligner inference: %w", "DocAligner 推理失败：%w", err)
 	}
 	return docHeatmaps(d.output.GetData(), img.Bounds().Dx(), img.Bounds().Dy())
 }

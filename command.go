@@ -96,7 +96,7 @@ func executeCommand(parent context.Context, r commandRequest, find discoveryFunc
 		cancel()
 		result.Warnings = append(result.Warnings, warnings...)
 		for _, warning := range warnings {
-			fmt.Fprintf(stderr, "发现警告：%q\n", warning)
+			fmt.Fprintf(stderr, r.language.text("发现警告：%q\n"), r.language.error(warning))
 		}
 		if err != nil {
 			return fail("device_resolution_failed", err)
@@ -124,7 +124,7 @@ func executeCommand(parent context.Context, r commandRequest, find discoveryFunc
 		cancel()
 		result.Warnings = append(result.Warnings, warnings...)
 		for _, warning := range warnings {
-			fmt.Fprintf(stderr, "发现警告：%q\n", warning)
+			fmt.Fprintf(stderr, r.language.text("发现警告：%q\n"), r.language.error(warning))
 		}
 		if err != nil {
 			return fail("discovery_failed", diagnosticf("Scanner discovery failed: %w", "发现失败：%w", err))
@@ -209,7 +209,7 @@ func executeCommand(parent context.Context, r commandRequest, find discoveryFunc
 				return diagnosticf("Cannot register the default scanner. No scan was started: %w", "登记默认设备失败；未启动扫描：%w", err)
 			}
 			c.beforeScan = nil
-			fmt.Fprintln(stderr, "已登记默认设备记录：", d.RecordID)
+			fmt.Fprintln(stderr, r.language.text("已登记默认设备记录："), d.RecordID)
 			return nil
 		}
 	}
@@ -267,7 +267,7 @@ func executeCommand(parent context.Context, r commandRequest, find discoveryFunc
 			hooks.event(event)
 		}
 	}
-	if err := scanPagesWithEvents(parent, c, r.opts, r.output, r.singlePage, r.timeout, hooks.wait, stdout, stderr, onEvent); err != nil {
+	if err := scanPagesWithEvents(parent, c, r.opts, r.output, r.singlePage, r.timeout, hooks.wait, stdout, stderr, onEvent, r.language); err != nil {
 		return fail("scan_failed", err)
 	}
 	return result, 0

@@ -14,6 +14,7 @@ func agentHelpContent(command string) (string, []helpSection) {
 			{"Examples", []helpItem{{text: "goscanner --agent discover"}, {text: "goscanner --agent info"}, {text: "goscanner --agent scan -o document.pdf"}}},
 			{"Global options", []helpItem{
 				{"--agent", "Noninteractive JSON output. Must precede the command.", ""},
+				{"--lang LANG", "Human interface language: auto, en, or zh-CN. Agent output remains English.", "auto"},
 				{"-h, --help", "Show help without reading configuration or accessing scanners.", ""},
 			}},
 			{"Configuration", []helpItem{{text: "~/.config/goscanner/config.json"}}},
@@ -71,7 +72,10 @@ func agentHelpContent(command string) (string, []helpSection) {
 			{"--endpoint URL", "Full HTTP/HTTPS scan endpoint. Registered scanners use their preferred protocol unless --protocol overrides it. Do not combine with split address options.", ""},
 		}})
 	}
-	sections = append(sections, helpSection{"Help", []helpItem{{"-h, --help", "Show help for this command.", ""}}})
+	sections = append(sections, helpSection{"Help", []helpItem{
+		{"--lang LANG", "Human interface language: auto, en, or zh-CN. Agent output remains English.", "auto"},
+		{"-h, --help", "Show help for this command.", ""},
+	}})
 	switch command {
 	case "scan":
 		sections = append(sections,

@@ -86,10 +86,10 @@ func TestPreprocessingOutputPipeline(t *testing.T) {
 			if scenario == "merged" || scenario == "split" {
 				wait = func(context.Context) (bool, error) { return jobs < 2, nil }
 			}
-			if err := scanPages(context.Background(), c, opts, output, scenario == "split", time.Second*10, wait, &stdout, &stderr); err != nil {
+			if err := scanPages(context.Background(), c, opts, output, scenario == "split", time.Second*10, wait, &stdout, &stderr, chinese); err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(stdout.String(), "Angle: 0.00°") && !strings.Contains(stdout.String(), "Angle: -0.00°") {
+			if !strings.Contains(stdout.String(), "角度：0.00°") && !strings.Contains(stdout.String(), "角度：-0.00°") {
 				t.Fatalf("reliable angle missing: %s", &stdout)
 			}
 
@@ -146,11 +146,11 @@ func TestPreprocessingWarningReachesCLI(t *testing.T) {
 	opts := defaultOptions()
 	opts.Deskew = true
 	opts.processor = &imageProcessor{deskew: true, detector: &fakeDetector{}}
-	if err := scanPages(context.Background(), c, opts, output, false, time.Second*10, nil, &stdout, &stderr); err != nil {
+	if err := scanPages(context.Background(), c, opts, output, false, time.Second*10, nil, &stdout, &stderr, chinese); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(output)
-	if err != nil || !bytes.Equal(data, original) || !strings.Contains(stderr.String(), "第 1 页预处理警告") || !strings.Contains(stdout.String(), "Detected: false；Angle: 不可用") {
+	if err != nil || !bytes.Equal(data, original) || !strings.Contains(stderr.String(), "第 1 页预处理警告") || !strings.Contains(stdout.String(), "检出：false；角度：不可用") {
 		t.Fatalf("uncertain detection must preserve original and warn: %v, %s", err, &stderr)
 	}
 }
@@ -182,10 +182,10 @@ func TestPipelineAmbiguousAngle(t *testing.T) {
 			opts.processor = &imageProcessor{detector: &fakeDetector{detection: d}, deskew: flags[0], autocrop: flags[1]}
 			output := filepath.Join(t.TempDir(), "scan.jpg")
 			var stdout, stderr bytes.Buffer
-			if err := scanPages(context.Background(), c, opts, output, false, time.Second*10, nil, &stdout, &stderr); err != nil {
+			if err := scanPages(context.Background(), c, opts, output, false, time.Second*10, nil, &stdout, &stderr, chinese); err != nil {
 				t.Fatal(err)
 			}
-			status := fmt.Sprintf("Detected: true；Angle: 不可用；Changed: %t", flags[1])
+			status := fmt.Sprintf("检出：true；角度：不可用；已修改：%t", flags[1])
 			if !strings.Contains(stdout.String(), status) || strings.Contains(stderr.String(), "已跳过旋转") != flags[0] || strings.Contains(stderr.String(), "仍按有效边界裁切") != (flags[0] && flags[1]) {
 				t.Fatalf("stdout=%s stderr=%s", &stdout, &stderr)
 			}
@@ -223,8 +223,8 @@ func TestPipelineInfoFailureDoesNotReportDetection(t *testing.T) {
 	opts.processor = &imageProcessor{deskew: true, detector: &fakeDetector{}}
 	var out, stderr bytes.Buffer
 	dir := t.TempDir()
-	err := scanPages(context.Background(), c, opts, filepath.Join(dir, "a.jpg"), false, time.Second, nil, &out, &stderr)
-	if err == nil || requests != 1 || strings.Contains(out.String(), "Detected:") {
+	err := scanPages(context.Background(), c, opts, filepath.Join(dir, "a.jpg"), false, time.Second, nil, &out, &stderr, chinese)
+	if err == nil || requests != 1 || strings.Contains(out.String(), "检出：") {
 		t.Fatalf("info failure was reported as a detection: err=%v requests=%d stdout=%s", err, requests, &out)
 	}
 	files, readErr := os.ReadDir(dir)
@@ -243,7 +243,7 @@ func TestPipelineModelFailureBeforeJob(t *testing.T) {
 	opts := defaultOptions()
 	opts.Deskew = true
 	var out, stderr bytes.Buffer
-	if err := scanPages(context.Background(), c, opts, filepath.Join(t.TempDir(), "a.jpg"), false, time.Second, nil, &out, &stderr); err == nil || jobs != 0 {
+	if err := scanPages(context.Background(), c, opts, filepath.Join(t.TempDir(), "a.jpg"), false, time.Second, nil, &out, &stderr, chinese); err == nil || jobs != 0 {
 		t.Fatalf("err=%v requests=%d", err, jobs)
 	}
 }
@@ -278,7 +278,7 @@ func TestPipelineBatchAndOriginalConflict(t *testing.T) {
 	output := filepath.Join(dir, "scan.pdf")
 	var stdout, stderr bytes.Buffer
 	wait := func(context.Context) (bool, error) { return jobs < 2, nil }
-	if err := scanPages(context.Background(), c, opts, output, false, 10*time.Second, wait, &stdout, &stderr); err != nil {
+	if err := scanPages(context.Background(), c, opts, output, false, 10*time.Second, wait, &stdout, &stderr, chinese); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 1 || d.calls != 2 || d.closed != 1 || !strings.Contains(stderr.String(), "inference failed") {
@@ -303,7 +303,7 @@ func TestPipelineBatchAndOriginalConflict(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := jobs
-	if err := scanPages(context.Background(), c, opts, jpg, false, 10*time.Second, nil, &stdout, &stderr); err == nil || jobs != before {
+	if err := scanPages(context.Background(), c, opts, jpg, false, 10*time.Second, nil, &stdout, &stderr, chinese); err == nil || jobs != before {
 		t.Fatalf("conflict: %v jobs=%d", err, jobs)
 	}
 	got, _ := os.ReadFile(orig)
@@ -346,7 +346,7 @@ func TestPipelineLosslessTIFFAndPNG(t *testing.T) {
 			dir := t.TempDir()
 			output := filepath.Join(dir, "page"+ext)
 			var out, stderr bytes.Buffer
-			if err := scanPages(context.Background(), c, opts, output, false, 10*time.Second, nil, &out, &stderr); err != nil {
+			if err := scanPages(context.Background(), c, opts, output, false, 10*time.Second, nil, &out, &stderr, chinese); err != nil {
 				t.Fatal(err)
 			}
 			original, err := os.ReadFile(filepath.Join(dir, "page-original.tiff"))
@@ -404,7 +404,7 @@ func TestPipelinePDFFailureKeepsOriginal(t *testing.T) {
 	opts.Deskew = true
 	opts.processor = &imageProcessor{deskew: true, detector: &fakeDetector{}}
 	var out, stderr bytes.Buffer
-	err := scanPages(context.Background(), c, opts, output, false, 10*time.Second, nil, &out, &stderr)
+	err := scanPages(context.Background(), c, opts, output, false, 10*time.Second, nil, &out, &stderr, chinese)
 	if err == nil || !strings.Contains(err.Error(), "保留") {
 		t.Fatalf("missing PDF recovery: %v", err)
 	}

@@ -22,6 +22,7 @@ var errOutputFormat = diagnosticf("The output extension must be .jpg, .jpeg, .ti
 type commandRequest struct {
 	command, endpoint, protocol, host, area, output string
 	recordID                                        string
+	language                                        language
 	device                                          *scannerDevice
 	registerDefault                                 bool
 	timeout                                         time.Duration
@@ -50,12 +51,13 @@ func (r *commandRequest) validateScan() error {
 	return nil
 }
 
-func parseRequest(args []string, manualDefault bool) (r commandRequest, help string, failure *commandError, code int) {
+func parseRequest(args []string, manualDefault bool, lang language) (r commandRequest, help string, failure *commandError, code int) {
+	r.language = lang
 	invalid := func(err error) (commandRequest, string, *commandError, int) {
 		return r, "", newCommandError("invalid_arguments", err), 2
 	}
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		return r, renderHelp("", 80, false), nil, 0
+		return r, renderHelp("", 80, false, lang), nil, 0
 	}
 	r.command = args[0]
 	if r.command != "info" && r.command != "scan" && r.command != "discover" {
@@ -65,6 +67,16 @@ func parseRequest(args []string, manualDefault bool) (r commandRequest, help str
 	flags.SetOutput(io.Discard)
 	flags.Usage = func() {}
 	defaults := defaultConfig()
+	var languageErr error
+	flags.Func("lang", "Human interface language: auto, en, or zh-CN", func(value string) error {
+		selected, err := selectLanguage(value)
+		if err != nil {
+			languageErr = err
+			return err
+		}
+		r.language = selected
+		return nil
+	})
 	r.timeout = 2 * time.Minute
 	if r.command == "scan" {
 		r.timeout = defaultScanTimeout
@@ -91,11 +103,15 @@ func parseRequest(args []string, manualDefault bool) (r commandRequest, help str
 		flags.StringVar(&r.area, "area", defaults.Scan.Area, "a4、full 或 x,y,width,height（毫米）")
 		flags.StringVar(&r.output, "o", "", "新 JPEG、TIFF、PNG 或 PDF 文件")
 	}
-	if err := flags.Parse(args[1:]); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return r, renderHelp(r.command, 80, false), nil, 0
+	parseErr := flags.Parse(args[1:])
+	if languageErr != nil {
+		return invalid(languageErr)
+	}
+	if parseErr != nil {
+		if errors.Is(parseErr, flag.ErrHelp) {
+			return r, renderHelp(r.command, 80, false, r.language), nil, 0
 		}
-		return invalid(err)
+		return invalid(parseErr)
 	}
 	badAddress, addressParts := false, false
 	explicit := map[string]bool{}
@@ -195,6 +211,12 @@ func runWithDiscovery(parent context.Context, args []string, stdout, stderr io.W
 	if agent {
 		args = args[1:]
 	}
+	args, lang, languageErr := leadingLanguage(args)
+	if languageErr != nil {
+		result := commandResult{Status: "ok"}
+		result.fail("invalid_arguments", languageErr)
+		return writeResult(stdout, stderr, result, 2, agent, lang)
+	}
 	humanTUI := !agent && interactiveOutput(stdout)
 	if len(args) == 0 && humanTUI {
 		args = []string{"scan"}
@@ -202,9 +224,10 @@ func runWithDiscovery(parent context.Context, args []string, stdout, stderr io.W
 	result := commandResult{Status: "ok"}
 	if agent && len(args) == 0 {
 		result.fail("invalid_arguments", diagnosticf("--agent requires a discover, info, or scan subcommand.", "--agent 必须指定 discover、info 或 scan 子命令"))
-		return writeResult(stdout, stderr, result, 2, agent)
+		return writeResult(stdout, stderr, result, 2, agent, lang)
 	}
-	r, help, failure, code := parseRequest(args, humanTUI)
+	r, help, failure, code := parseRequest(args, humanTUI, lang)
+	lang = r.language
 	if failure != nil {
 		result.Status, result.Error = "error", failure
 	} else if help != "" {
@@ -213,7 +236,7 @@ func runWithDiscovery(parent context.Context, args []string, stdout, stderr io.W
 			result.Help = renderAgentHelp(r.command)
 		} else {
 			width, colored := helpDisplay(stdout)
-			result.Help = renderHelp(r.command, width, colored)
+			result.Help = renderHelp(r.command, width, colored, lang)
 		}
 	} else if agent && r.manual {
 		result.fail("unsupported_interaction", diagnosticf("Agent mode does not support --manual. Run scan separately for each acquisition.", "Agent 模式不支持 --manual；请逐次执行 scan"))
@@ -224,16 +247,16 @@ func runWithDiscovery(parent context.Context, args []string, stdout, stderr io.W
 		hooks := commandHooks{agent: agent}
 		if !agent {
 			hooks.choose = func(ctx context.Context, devices []scannerDevice) (string, error) {
-				return chooseDevice(ctx, devices, stderr)
+				return chooseDevice(ctx, devices, stderr, lang)
 			}
 			if r.manual {
 				keys, err := openKeyInput()
 				if err != nil {
 					result.fail("terminal_required", diagnosticf("Manual scanning requires an interactive terminal: %w", "手动连续扫描需要交互终端：%w", err))
-					return writeResult(stdout, stderr, result, 1, agent)
+					return writeResult(stdout, stderr, result, 1, agent, lang)
 				}
 				defer keys.file.Close()
-				hooks.wait = func(ctx context.Context) (bool, error) { return keys.wait(ctx, stderr) }
+				hooks.wait = func(ctx context.Context) (bool, error) { return keys.wait(ctx, stderr, lang) }
 			}
 		}
 		out, diagnostics := stdout, stderr
@@ -242,7 +265,7 @@ func runWithDiscovery(parent context.Context, args []string, stdout, stderr io.W
 		}
 		result, code = executeCommand(parent, r, find, hooks, out, diagnostics)
 	}
-	return writeResult(stdout, stderr, result, code, agent)
+	return writeResult(stdout, stderr, result, code, agent, lang)
 }
 
 func main() {
@@ -260,21 +283,21 @@ func exitCode(ctx context.Context) int {
 }
 
 // Keep encoding errors observable even when the command itself succeeded.
-func writeResult(stdout, stderr io.Writer, result commandResult, code int, agent bool) int {
+func writeResult(stdout, stderr io.Writer, result commandResult, code int, agent bool, lang language) int {
 	var err error
 	if agent {
 		err = json.NewEncoder(stdout).Encode(result)
 	} else if result.Help != "" {
 		_, err = fmt.Fprint(stdout, result.Help)
 	} else if result.Error != nil {
-		_, err = fmt.Fprintln(stderr, result.Error.Message)
+		_, err = fmt.Fprintln(stderr, lang.commandError(result.Error))
 	}
 	if err != nil {
 		failure := diagnosticf("Cannot write the command result: %w", "输出结果失败： %w", err)
 		if agent {
 			fmt.Fprintln(stderr, agentError(failure))
 		} else {
-			fmt.Fprintln(stderr, failure)
+			fmt.Fprintln(stderr, lang.error(failure))
 		}
 		return 1
 	}

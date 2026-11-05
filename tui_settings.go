@@ -67,37 +67,37 @@ func outputFormatLabel(path string) string {
 }
 
 func (m *humanModel) settingValues() []string {
-	mode := "彩色"
+	mode := m.lang.text("彩色")
 	if m.draft.opts.Mode == "gray" {
-		mode = "灰度"
+		mode = m.lang.text("灰度")
 	}
-	area := "自定义（" + m.draft.area + "）"
+	area := fmt.Sprintf(m.lang.text("自定义（%s）"), m.draft.area)
 	if strings.EqualFold(m.draft.area, "a4") {
 		area = "A4"
 	}
 	if strings.EqualFold(m.draft.area, "full") {
-		area = "完整平板"
+		area = m.lang.text("完整平板")
 	}
 	onOff := func(value bool) string {
 		if value {
-			return "开启"
+			return m.lang.text("开启")
 		}
-		return "关闭"
+		return m.lang.text("关闭")
 	}
 	single := onOff(m.draft.singlePage)
 	if outputFormatLabel(m.draft.output) != "PDF" {
-		single = "不可用（仅 PDF）"
+		single = m.lang.text("不可用（仅 PDF）")
 	}
-	return []string{fmt.Sprintf("%d DPI", m.draft.opts.DPI), mode, area, outputFormatLabel(m.draft.output), m.draft.output,
-		onOff(m.draft.manual), single, onOff(m.draft.opts.Deskew), onOff(m.draft.opts.Autocrop), "校验并返回扫描页"}
+	return []string{fmt.Sprintf("%d DPI", m.draft.opts.DPI), mode, area, m.lang.text(outputFormatLabel(m.draft.output)), m.draft.output,
+		onOff(m.draft.manual), single, onOff(m.draft.opts.Deskew), onOff(m.draft.opts.Autocrop), m.lang.text("校验并返回扫描页")}
 }
 
 func (m *humanModel) settingChoices() []settingChoice {
 	if m.settingToggle() != nil {
-		return []settingChoice{{"关闭", "false"}, {"开启", "true"}}
+		return []settingChoice{{m.lang.text("关闭"), "false"}, {m.lang.text("开启"), "true"}}
 	}
 	if m.field == settingArea {
-		return []settingChoice{{"A4", "a4"}, {"完整平板", "full"}, {"自定义区域…", "custom"}}
+		return []settingChoice{{"A4", "a4"}, {m.lang.text("完整平板"), "full"}, {m.lang.text("自定义区域…"), "custom"}}
 	}
 	cap := m.capabilities
 	if cap == nil {
@@ -115,10 +115,10 @@ func (m *humanModel) settingChoices() []settingChoice {
 		}
 	case settingMode:
 		if slices.Contains(cap.Colors, "RGB24") {
-			choices = append(choices, settingChoice{"彩色", "color"})
+			choices = append(choices, settingChoice{m.lang.text("彩色"), "color"})
 		}
 		if slices.Contains(cap.Colors, "Grayscale8") {
-			choices = append(choices, settingChoice{"灰度", "gray"})
+			choices = append(choices, settingChoice{m.lang.text("灰度"), "gray"})
 		}
 	case settingFormat:
 		if slices.Contains(cap.Formats, formatJPEG) {
@@ -147,7 +147,7 @@ func (m *humanModel) beginSettingInput() tea.Cmd {
 		if strings.EqualFold(value, "a4") || strings.EqualFold(value, "full") {
 			value = ""
 		}
-		m.input.Placeholder = "x,y,width,height（毫米）"
+		m.input.Placeholder = m.lang.text("x,y,width,height（毫米）")
 	}
 	m.input.SetValue(value)
 	m.editing, m.notice = true, ""
@@ -157,12 +157,12 @@ func (m *humanModel) beginSettingInput() tea.Cmd {
 func (m *humanModel) openSetting() tea.Cmd {
 	m.notice = ""
 	if m.field == settingSinglePage && outputFormatLabel(m.draft.output) != "PDF" {
-		m.notice = "请先将输出格式设为 PDF"
+		m.notice = m.lang.text("请先将输出格式设为 PDF")
 		return nil
 	}
 	if m.field == settingApply {
 		if err := m.draft.validateScan(); err != nil {
-			m.notice = err.Error()
+			m.notice = m.lang.error(err)
 			return nil
 		}
 		m.request = m.draft
@@ -174,12 +174,12 @@ func (m *humanModel) openSetting() tea.Cmd {
 	}
 	m.choices, m.choice = m.settingChoices(), 0
 	if len(m.choices) == 0 {
-		m.notice = "没有可选值；请返回扫描页重新检查设备能力"
+		m.notice = m.lang.text("没有可选值；请返回扫描页重新检查设备能力")
 		return nil
 	}
 	current := m.settingValues()[m.field]
 	for i, choice := range m.choices {
-		if choice.label == current || (choice.value == "custom" && strings.HasPrefix(current, "自定义（")) {
+		if choice.label == current || (choice.value == "custom" && strings.HasPrefix(current, m.lang.text("自定义（"))) {
 			m.choice = i
 		}
 	}
@@ -205,7 +205,7 @@ func (m *humanModel) confirmSettingChoice() tea.Cmd {
 		}
 		if choice.label != "PDF" && m.draft.singlePage {
 			m.draft.singlePage = false
-			m.notice = "已关闭 PDF 每页独立保存（仅适用于 PDF）"
+			m.notice = m.lang.text("已关闭 PDF 每页独立保存（仅适用于 PDF）")
 		}
 	default:
 		*m.settingToggle() = choice.value == "true"
@@ -232,12 +232,12 @@ func (m *humanModel) updateSettings(msg tea.KeyPressMsg) tea.Cmd {
 				}
 			}
 			if err := draft.validateScan(); err != nil {
-				m.notice = err.Error()
+				m.notice = m.lang.error(err)
 				return nil
 			}
 			m.notice = ""
 			if m.draft.singlePage && !draft.singlePage {
-				m.notice = "已关闭 PDF 每页独立保存（仅适用于 PDF）"
+				m.notice = m.lang.text("已关闭 PDF 每页独立保存（仅适用于 PDF）")
 			}
 			m.draft, m.editing = draft, false
 			m.input.Blur()
@@ -272,7 +272,7 @@ func (m *humanModel) updateSettings(msg tea.KeyPressMsg) tea.Cmd {
 	case "space":
 		if value := m.settingToggle(); value != nil {
 			if m.field == settingSinglePage && outputFormatLabel(m.draft.output) != "PDF" {
-				m.notice = "请先将输出格式设为 PDF"
+				m.notice = m.lang.text("请先将输出格式设为 PDF")
 			} else {
 				*value = !*value
 				m.notice = ""
@@ -285,9 +285,10 @@ func (m *humanModel) updateSettings(msg tea.KeyPressMsg) tea.Cmd {
 }
 
 func (m *humanModel) settingsView(width int) string {
-	lines := []string{tuiAccent.Render("设置（仅本次运行）")}
+	lines := []string{tuiAccent.Render(m.lang.text("设置（仅本次运行）"))}
 	values, focus := m.settingValues(), 0
 	for field, name := range settingNames {
+		name = m.lang.text(name)
 		prefix := "  "
 		if field == m.field {
 			prefix, focus = "> ", len(lines)
@@ -298,10 +299,10 @@ func (m *humanModel) settingsView(width int) string {
 			label, value = tuiAccent.Render(label), tuiAccent.Render(value)
 		} else {
 			label = tuiMuted.Render(label)
-			if values[field] == "开启" {
+			if values[field] == m.lang.text("开启") {
 				value = tuiSuccess.Render(value)
 			}
-			if values[field] == "关闭" || strings.HasPrefix(values[field], "不可用") {
+			if values[field] == m.lang.text("关闭") || strings.HasPrefix(values[field], m.lang.text("不可用")) {
 				value = tuiMuted.Render(value)
 			}
 			if field == settingPath {

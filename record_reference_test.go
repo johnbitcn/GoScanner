@@ -61,17 +61,17 @@ func TestRecordConfigFormatsAndOverrides(t *testing.T) {
 		}
 	}
 	writeTestConfig(t, `{"device":{"record_id":"`+id+`"}}`)
-	r, _, failure, _ := parseRequest([]string{"info"}, false)
+	r, _, failure, _ := parseRequest([]string{"info"}, false, chinese)
 	if failure != nil || r.recordID != id || r.endpoint != "" {
 		t.Fatalf("%+v %v", r, failure)
 	}
 	for _, args := range [][]string{{"info", "--host", "192.168.1.9"}, {"info", "--endpoint", "http://192.168.1.9/scan"}} {
-		r, _, failure, _ = parseRequest(args, false)
+		r, _, failure, _ = parseRequest(args, false, chinese)
 		if failure != nil || r.recordID != "" {
 			t.Fatalf("explicit address did not override reference: %+v %v", r, failure)
 		}
 	}
-	if _, _, failure, _ := parseRequest([]string{"info", "--port", "8888"}, false); failure == nil {
+	if _, _, failure, _ := parseRequest([]string{"info", "--port", "8888"}, false, chinese); failure == nil {
 		t.Fatal("port alone silently changed reference")
 	}
 }

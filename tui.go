@@ -64,6 +64,7 @@ type humanModel struct {
 	cancel                context.CancelFunc
 	tasks                 *sync.WaitGroup
 	request               commandRequest
+	lang                  language
 	find                  discoveryFunc
 	events                chan tea.Msg
 	stopped               chan struct{}
@@ -99,8 +100,8 @@ type humanModel struct {
 }
 
 func newHumanModel(ctx context.Context, cancel context.CancelFunc, request commandRequest, find discoveryFunc) *humanModel {
-	m := &humanModel{ctx: ctx, cancel: cancel, tasks: &sync.WaitGroup{}, request: request, find: find,
-		events: make(chan tea.Msg, 16), stopped: make(chan struct{}), state: "working", status: "等待检查设备…", width: 80, height: 24,
+	m := &humanModel{ctx: ctx, cancel: cancel, tasks: &sync.WaitGroup{}, request: request, find: find, lang: request.language,
+		events: make(chan tea.Msg, 16), stopped: make(chan struct{}), state: "working", status: request.language.text("等待检查设备…"), width: 80, height: 24,
 		viewport: viewport.New()}
 	m.reloadDrives()
 	return m
@@ -141,11 +142,11 @@ func (m *humanModel) start(discovery bool) {
 	r := m.request
 	if discovery {
 		r.command = "discover"
-		m.status = "正在发现设备…"
+		m.status = m.lang.text("正在发现设备…")
 	} else if r.command == "info" {
-		m.status = "正在读取设备能力…"
+		m.status = m.lang.text("正在读取设备能力…")
 	} else {
-		m.status = "正在准备扫描…"
+		m.status = m.lang.text("正在准备扫描…")
 	}
 	m.task(func() tea.Msg {
 		hooks := commandHooks{event: func(event scanEvent) { m.emit(event) }}
@@ -167,7 +168,7 @@ func (m *humanModel) start(discovery bool) {
 }
 
 func (m *humanModel) checkDevice() {
-	m.working, m.state, m.status, m.notice = true, "working", "正在检查设备状态和扫描能力…", ""
+	m.working, m.state, m.status, m.notice = true, "working", m.lang.text("正在检查设备状态和扫描能力…"), ""
 	r := m.request
 	r.command = "info"
 	m.task(func() tea.Msg {
@@ -186,9 +187,9 @@ func (m *humanModel) showReadiness(result commandResult, code int) {
 	}
 	m.capabilities, m.checkedAt, m.code = result.Info, time.Now(), code
 	if code == 0 {
-		m.state, m.status, m.notice = "ready", "就绪（设备报告 Idle；当前参数有效）", ""
+		m.state, m.status, m.notice = "ready", m.lang.text("就绪（设备报告 Idle；当前参数有效）"), ""
 	} else {
-		m.state, m.status, m.notice = "unavailable", "无法确认就绪；未启动扫描", result.Error.Message
+		m.state, m.status, m.notice = "unavailable", m.lang.text("无法确认就绪；未启动扫描"), m.lang.commandError(result.Error)
 	}
 }
 
@@ -221,7 +222,7 @@ func (m *humanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.code = 130
 			return m, tea.Quit
 		}
-		m.status, m.state = "正在取消并保存已完成页面，请稍候…", "working"
+		m.status, m.state = m.lang.text("正在取消并保存已完成页面，请稍候…"), "working"
 	case scanEvent:
 		if m.ctx.Err() != nil {
 			return m, m.listen
@@ -229,13 +230,13 @@ func (m *humanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.kind {
 		case "scanning":
 			m.page = msg.page
-			m.status = fmt.Sprintf("正在检查能力并扫描第 %d 页…", msg.page)
+			m.status = fmt.Sprintf(m.lang.text("正在检查能力并扫描第 %d 页…"), msg.page)
 		case "scanned":
-			m.status = fmt.Sprintf("已扫描第 %d 页；结束时保存 PDF", msg.page)
+			m.status = fmt.Sprintf(m.lang.text("已扫描第 %d 页；结束时保存 PDF"), msg.page)
 		case "saved", "original":
 			m.latest = msg.path
 		case "warning":
-			m.notice = msg.warning.Error()
+			m.notice = m.lang.error(msg.warning)
 		}
 		return m, m.listen
 	case nextPageMsg:
@@ -243,7 +244,7 @@ func (m *humanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.listen
 		}
 		m.reply, m.state = msg.reply, "waiting"
-		m.status = fmt.Sprintf("第 %d 页已扫描，请更换扫描页", m.page)
+		m.status = fmt.Sprintf(m.lang.text("第 %d 页已扫描，请更换扫描页"), m.page)
 		return m, m.listen
 	case commandDoneMsg:
 		m.working = false
@@ -268,7 +269,7 @@ func (m *humanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.discovering = false
 		m.warnings = msg.result.Warnings
 		if msg.result.Error != nil {
-			m.notice = msg.result.Error.Message
+			m.notice = m.lang.commandError(msg.result.Error)
 			return m, m.listen
 		}
 		m.reloadDrives()
@@ -280,16 +281,16 @@ func (m *humanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.autoDiscover = true
 			m.deviceField = deviceFirstResult
-			m.notice = "该 IP 有多条无法确认同一身份的记录；请选择设备，不会自动合并"
+			m.notice = m.lang.text("该 IP 有多条无法确认同一身份的记录；请选择设备，不会自动合并")
 		}
 		return m, m.listen
 	case deviceDiscoveryMsg:
 		if msg.generation == m.discoveryGeneration && m.autoDiscover && (m.state == "devices" || m.state == "device-list") {
 			m.discovering = false
 			m.warnings = msg.result.Warnings
-			m.notice = warningText(msg.result.Warnings)
+			m.notice = m.lang.warnings(msg.result.Warnings)
 			if msg.result.Error != nil {
-				m.notice += " " + msg.result.Error.Message
+				m.notice += " " + m.lang.commandError(msg.result.Error)
 			}
 			if msg.result.Devices != nil {
 				m.devices = *msg.result.Devices
@@ -311,7 +312,7 @@ func (m *humanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		if msg.code != 0 {
-			m.state, m.notice = "devices", msg.result.Error.Message
+			m.state, m.notice = "devices", m.lang.commandError(msg.result.Error)
 			return m, m.listen
 		}
 		m.request.endpoint, m.request.protocol, m.request.host = msg.endpoint, msg.protocol, ""
@@ -333,7 +334,7 @@ func (m *humanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.code = 130
 				return m, tea.Quit
 			}
-			m.state, m.status = "working", "正在取消并保存已完成页面，请稍候…"
+			m.state, m.status = "working", m.lang.text("正在取消并保存已完成页面，请稍候…")
 			return m, nil
 		}
 		if m.ctx.Err() != nil {
@@ -362,7 +363,7 @@ func (m *humanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "waiting":
 			if key == "enter" || key == "esc" {
 				m.reply <- key == "enter"
-				m.reply, m.state, m.status = nil, "working", "正在保存已完成页面…"
+				m.reply, m.state, m.status = nil, "working", m.lang.text("正在保存已完成页面…")
 			}
 		case "settings":
 			return m, m.updateSettings(msg)
@@ -394,7 +395,7 @@ func (m *humanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *humanModel) View() tea.View {
 	width := max(10, m.width-2)
 	lines := []string{tuiAccent.Render("GoScanner"), ""}
-	footer := "Ctrl+C 取消"
+	footer := m.lang.text("Ctrl+C 取消")
 	switch m.state {
 	case "ready", "unavailable":
 		checkbox := func(enabled bool, label string) string {
@@ -407,35 +408,35 @@ func (m *humanModel) View() tea.View {
 		if m.state == "unavailable" {
 			status = tuiWarning.Render(m.status)
 		}
-		lines = append(lines, "设备  "+m.deviceLabel(m.request.endpoint, width-6),
-			fmt.Sprintf("设置  %s · %s · %d DPI", terminalText(m.request.area), terminalText(m.request.opts.Mode), m.request.opts.DPI),
-			fmt.Sprintf("选项  %s · %s · %s · %s", checkbox(m.request.manual, "连续"), checkbox(m.request.singlePage, "独立 PDF"), checkbox(m.request.opts.Deskew, "纠偏"), checkbox(m.request.opts.Autocrop, "裁切")),
-			"输出  "+tuiPath.Render(terminalText(m.request.output)), "", "状态  "+status,
-			tuiMuted.Render("检查  "+m.checkedAt.Format("15:04:05")+"（按 r 更新）"))
-		footer = "r 重新检查 · d 更换设备 · s 设置 · q 退出"
+		lines = append(lines, m.lang.text("设备  ")+m.deviceLabel(m.request.endpoint, width-ansi.StringWidth(m.lang.text("设备  "))),
+			fmt.Sprintf(m.lang.text("设置  %s · %s · %d DPI"), terminalText(m.request.area), terminalText(m.request.opts.Mode), m.request.opts.DPI),
+			fmt.Sprintf(m.lang.text("选项  %s · %s · %s · %s"), checkbox(m.request.manual, m.lang.text("连续")), checkbox(m.request.singlePage, m.lang.text("独立 PDF")), checkbox(m.request.opts.Deskew, m.lang.text("纠偏")), checkbox(m.request.opts.Autocrop, m.lang.text("裁切"))),
+			m.lang.text("输出  ")+tuiPath.Render(terminalText(m.request.output)), "", m.lang.text("状态  ")+status,
+			tuiMuted.Render(fmt.Sprintf(m.lang.text("检查  %s（按 r 更新）"), m.checkedAt.Format("15:04:05"))))
+		footer = m.lang.text("r 重新检查 · d 更换设备 · s 设置 · q 退出")
 		if m.state == "ready" {
-			footer = "Enter 开始扫描 · " + footer
+			footer = m.lang.text("Enter 开始扫描 · ") + footer
 		}
 	case "device-list":
 		lines = append(lines, m.deviceListView(width))
-		footer = "↑/↓ 选择 · Enter 使用/添加 · p 切换首选协议 · Esc 返回"
+		footer = m.lang.text("↑/↓ 选择 · Enter 使用/添加 · p 切换首选协议 · Esc 返回")
 		if m.deviceCursor == len(m.drives)+1 {
-			footer = "Space/Enter 自动发现开关 · r 重新搜索 · Esc 返回"
+			footer = m.lang.text("Space/Enter 自动发现开关 · r 重新搜索 · Esc 返回")
 		}
 	case "devices":
 		lines = append(lines, m.devicesView(width))
-		footer = "↑/↓/Tab 选择 · Enter 下一项/确认 · Esc 返回"
+		footer = m.lang.text("↑/↓/Tab 选择 · Enter 下一项/确认 · Esc 返回")
 		if m.deviceField == deviceAuto {
-			footer = "Space/Enter 自动发现开关 · r 重新搜索 · Esc 返回"
+			footer = m.lang.text("Space/Enter 自动发现开关 · r 重新搜索 · Esc 返回")
 		}
 	case "settings":
 		lines = append(lines, m.settingsView(width))
-		footer = "↑/↓ 选择设置 · Enter 修改/应用 · Space 开关 · Esc 放弃"
+		footer = m.lang.text("↑/↓ 选择设置 · Enter 修改/应用 · Space 开关 · Esc 放弃")
 		if len(m.choices) > 0 {
-			footer = "↑/↓ 选择值 · Enter 确认 · Esc 返回列表"
+			footer = m.lang.text("↑/↓ 选择值 · Enter 确认 · Esc 返回列表")
 		}
 		if m.editing {
-			footer = "Enter 确认输入 · Esc 放弃本项"
+			footer = m.lang.text("Enter 确认输入 · Esc 放弃本项")
 		}
 	case "working", "waiting":
 		status := tuiAccent.Render(m.status)
@@ -446,71 +447,71 @@ func (m *humanModel) View() tea.View {
 		if m.validatingEndpoint != "" {
 			endpoint = m.validatingEndpoint
 		}
-		lines = append(lines, "设备  "+m.deviceLabel(endpoint, width-6), "状态  "+status)
+		lines = append(lines, m.lang.text("设备  ")+m.deviceLabel(endpoint, width-ansi.StringWidth(m.lang.text("设备  "))), m.lang.text("状态  ")+status)
 		if m.latest != "" {
-			lines = append(lines, "文件  "+tuiPath.Render(terminalText(m.latest)))
+			lines = append(lines, m.lang.text("文件  ")+tuiPath.Render(terminalText(m.latest)))
 		}
 		if m.state == "waiting" {
-			footer = "Enter 扫描下一页 · Esc 结束并保存 · Ctrl+C 取消"
+			footer = m.lang.text("Enter 扫描下一页 · Esc 结束并保存 · Ctrl+C 取消")
 		}
 	case "done":
 		m.viewport.SetWidth(width)
 		m.viewport.SetHeight(max(1, m.height-5))
 		m.viewport.FillHeight, m.viewport.SoftWrap = false, true
-		m.viewport.SetContent(resultText(m.result, true))
+		m.viewport.SetContent(resultText(m.result, true, m.lang))
 		lines = append(lines, m.viewport.View())
-		footer = "↑/↓ 滚动 · Enter / q 退出"
+		footer = m.lang.text("↑/↓ 滚动 · Enter / q 退出")
 		if m.result.Error != nil && m.result.Error.Code == "device_record_not_found" {
-			footer = "d 重新选择设备 · Enter / q 退出"
+			footer = m.lang.text("d 重新选择设备 · Enter / q 退出")
 		}
 	}
 	if m.notice != "" {
-		lines = append(lines, tuiWarning.Render("提示  "+terminalText(m.notice)))
+		lines = append(lines, tuiWarning.Render(m.lang.text("提示  ")+terminalText(m.notice)))
 	}
 	lines = append(lines, "", tuiMuted.Render(footer))
 	return tea.NewView(lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n")))
 }
 
-func resultText(result commandResult, colored bool) string {
+func resultText(result commandResult, colored bool, lang language) string {
 	paint := func(style lipgloss.Style, text string) string {
 		if colored {
 			return style.Render(text)
 		}
 		return text
 	}
-	lines := []string{paint(tuiSuccess, "状态  完成")}
+	lines := []string{paint(tuiSuccess, lang.text("状态  完成"))}
 	if result.Error != nil {
-		lines[0] = paint(tuiError, "状态  失败")
+		lines[0] = paint(tuiError, lang.text("状态  失败"))
 		if result.Status == "partial" {
-			lines[0] = paint(tuiWarning, "状态  部分完成；已保留文件")
+			lines[0] = paint(tuiWarning, lang.text("状态  部分完成；已保留文件"))
 		}
-		lines = append(lines, paint(tuiError, terminalText(result.Error.Message)))
+		lines = append(lines, paint(tuiError, terminalText(lang.commandError(result.Error))))
 	}
 	if result.Pages > 0 {
-		lines = append(lines, paint(tuiSuccess, fmt.Sprintf("已保存 %d 页", result.Pages)))
+		lines = append(lines, paint(tuiSuccess, fmt.Sprintf(lang.text("已保存 %d 页"), result.Pages)))
 	}
 	for _, path := range result.Files {
-		lines = append(lines, "文件  "+paint(tuiPath, terminalText(path)))
+		lines = append(lines, lang.text("文件  ")+paint(tuiPath, terminalText(path)))
 	}
 	for _, path := range result.Originals {
-		lines = append(lines, "原图  "+paint(tuiPath, terminalText(path)))
+		lines = append(lines, lang.text("原图  ")+paint(tuiPath, terminalText(path)))
 	}
 	for _, path := range result.Retained {
-		lines = append(lines, paint(tuiWarning, "暂存  "+terminalText(path)))
+		lines = append(lines, paint(tuiWarning, lang.text("暂存  ")+terminalText(path)))
 	}
 	for _, warning := range result.Warnings {
-		lines = append(lines, paint(tuiWarning, "警告  "+terminalText(warning.Error())))
+		lines = append(lines, paint(tuiWarning, lang.text("警告  ")+terminalText(lang.error(warning))))
 	}
 	for _, page := range result.Processing {
-		angle := "不可用"
+		angle := lang.text("不可用")
 		if page.AngleReliable {
 			angle = fmt.Sprintf("%.2f°", page.Angle)
 		}
-		lines = append(lines, fmt.Sprintf("第 %d 页处理  检出 %t · 角度 %s · 已修改 %t", page.Page, page.Detected, angle, page.Changed))
+		lines = append(lines, fmt.Sprintf(lang.text("第 %d 页处理  检出 %t · 角度 %s · 已修改 %t"), page.Page, page.Detected, angle, page.Changed))
 	}
 	if result.Devices != nil {
 		if len(*result.Devices) == 0 {
-			lines = append(lines, "未发现 WSD 扫描仪")
+			lines = append(lines, lang.text("未发现 WSD 扫描仪"))
 		}
 		for _, device := range *result.Devices {
 			lines = append(lines, terminalText(device.Name+" · "+device.Model+" · "+device.Endpoint))
@@ -521,10 +522,10 @@ func resultText(result commandResult, colored bool) string {
 		if cap.State != "Idle" {
 			stateStyle = tuiWarning
 		}
-		lines = append(lines, "设备状态  "+paint(stateStyle, terminalText(cap.State)),
-			fmt.Sprintf("水平 DPI  %v", cap.WidthsDPI), fmt.Sprintf("垂直 DPI  %v", cap.HeightsDPI),
-			"颜色  "+terminalText(strings.Join(cap.Colors, ", ")), "格式  "+terminalText(strings.Join(cap.Formats, ", ")),
-			fmt.Sprintf("尺寸  %v ～ %v（%s）", cap.MinSize, cap.MaxSize, terminalText(cap.SizeUnit)))
+		lines = append(lines, lang.text("设备状态  ")+paint(stateStyle, terminalText(cap.State)),
+			fmt.Sprintf(lang.text("水平 DPI  %v"), cap.WidthsDPI), fmt.Sprintf(lang.text("垂直 DPI  %v"), cap.HeightsDPI),
+			lang.text("颜色  ")+terminalText(strings.Join(cap.Colors, ", ")), lang.text("格式  ")+terminalText(strings.Join(cap.Formats, ", ")),
+			fmt.Sprintf(lang.text("尺寸  %v ～ %v（%s）"), cap.MinSize, cap.MaxSize, terminalText(cap.SizeUnit)))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -537,9 +538,9 @@ func runTUI(parent context.Context, request commandRequest, stdout, stderr io.Wr
 	cancel()
 	model.tasks.Wait()
 	if err != nil {
-		fmt.Fprintln(stderr, "终端界面失败；已等待任务清理，勿立即重试扫描：", err)
+		fmt.Fprintln(stderr, request.language.error(diagnosticf("Terminal interface failed. Task cleanup has finished. Do not immediately repeat the scan: %w", "终端界面失败；已等待任务清理，勿立即重试扫描： %w", err)))
 		if !model.lastResult.discovery && model.lastResult.result.Status != "" {
-			fmt.Fprintln(stderr, resultText(model.lastResult.result, false))
+			fmt.Fprintln(stderr, resultText(model.lastResult.result, false, request.language))
 		}
 		return exitCode(parent)
 	}

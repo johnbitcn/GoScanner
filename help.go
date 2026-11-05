@@ -83,23 +83,21 @@ func wrapHelp(text string, width int) []helpLine {
 	return lines
 }
 
-func renderHelp(command string, width int, colored bool) string {
-	return renderHelpLanguage(command, width, colored, false)
+func renderHelp(command string, width int, colored bool, lang language) string {
+	summary, sections := helpContent(command, lang)
+	return renderHelpContent(command, width, colored, lang, summary, sections)
 }
 
 func renderAgentHelp(command string) string {
-	return renderHelpLanguage(command, 80, false, true)
+	summary, sections := agentHelpContent(command)
+	return renderHelpContent(command, 80, false, english, summary, sections)
 }
 
-func renderHelpLanguage(command string, width int, colored, english bool) string {
+func renderHelpContent(command string, width int, colored bool, lang language, summary string, sections []helpSection) string {
 	if width <= 0 {
 		width = 80
 	}
 	width = max(8, min(width, 88))
-	summary, sections := helpContent(command)
-	if english {
-		summary, sections = agentHelpContent(command)
-	}
 	paint := func(text string, style lipgloss.Style) string {
 		if colored {
 			return style.Render(text)
@@ -114,24 +112,21 @@ func renderHelpLanguage(command string, width int, colored, english bool) string
 		}
 	}
 	write("GoScanner", 0, tuiAccent)
-	write(summary, 0, plain)
+	write(lang.text(summary), 0, plain)
 	for _, section := range sections {
 		out.WriteByte('\n')
-		write(section.title, 0, tuiAccent)
+		write(lang.text(section.title), 0, tuiAccent)
 		for i, item := range section.items {
 			if item.label == "" {
-				write(item.text, 2, plain)
+				write(lang.text(item.text), 2, plain)
 				continue
 			}
-			text := item.text
+			description := lang.text(item.text)
+			text := description
 			if item.defaultValue != "" {
-				if english {
-					text += " Default: " + item.defaultValue + "."
-				} else {
-					text += " 默认：" + item.defaultValue + "。"
-				}
+				text += fmt.Sprintf(lang.text(" 默认：%s。"), lang.text(item.defaultValue))
 			}
-			defaultStart := len(item.text) + 1
+			defaultStart := len(description) + 1
 			body := func(line helpLine) string {
 				if item.defaultValue == "" || defaultStart >= line.start+len(line.text) {
 					return line.text
@@ -171,10 +166,10 @@ func renderHelpLanguage(command string, width int, colored, english bool) string
 	return out.String()
 }
 
-func helpContent(command string) (string, []helpSection) {
+func helpContent(command string, lang language) (string, []helpSection) {
 	if command == "" {
 		return "macOS 局域网 eSCL / WSD 扫描工具", []helpSection{
-			{"用法", []helpItem{{text: "goscanner"}, {text: "goscanner [--agent] <命令> [参数]"}}},
+			{"用法", []helpItem{{text: "goscanner"}, {text: "goscanner [--agent] [--lang LANG] <命令> [参数]"}}},
 			{"命令", []helpItem{
 				{"scan", "扫描文档；默认打开交互界面", ""},
 				{"info", "查看设备能力与状态，不扫描", ""},
@@ -183,6 +178,7 @@ func helpContent(command string) (string, []helpSection) {
 			{"常用示例", []helpItem{{text: "goscanner"}, {text: "goscanner scan -o 文档.pdf"}, {text: "goscanner --agent info"}}},
 			{"全局选项", []helpItem{
 				{"--agent", "无交互模式，输出 JSON；必须放在命令前", ""},
+				{"--lang LANG", "人类界面语言：auto、en 或 zh-CN；Agent 输出始终使用英文。", "auto"},
 				{"-h, --help", "显示帮助", ""},
 			}},
 			{"配置", []helpItem{{text: "~/.config/goscanner/config.json"}}},
@@ -191,7 +187,7 @@ func helpContent(command string) (string, []helpSection) {
 	}
 	defaults := defaultConfig()
 	summary := map[string]string{"scan": "扫描文档", "info": "查看设备能力与状态，不启动扫描", "discover": "并行发现局域网 eSCL 和 WSD 扫描设备"}[command]
-	sections := []helpSection{{"用法", []helpItem{{text: "goscanner [--agent] " + command + " [参数]"}}}}
+	sections := []helpSection{{"用法", []helpItem{{text: "goscanner [--agent] " + command + lang.text(" [参数]")}}}}
 	if command != "discover" {
 		sections = append(sections, helpSection{"设备", []helpItem{
 			{"--host IP", "扫描仪 IP 地址，不接受主机名或 URL。未配置时可在交互界面选用或添加设备。", ""},
@@ -237,7 +233,10 @@ func helpContent(command string) (string, []helpSection) {
 			{"--endpoint URL", "完整 HTTP/HTTPS 扫描端点；已登记设备使用首选协议。--protocol 可选，仅覆盖本次；与拆分地址参数互斥。", ""},
 		}})
 	}
-	sections = append(sections, helpSection{"帮助", []helpItem{{"-h, --help", "显示当前命令的帮助", ""}}})
+	sections = append(sections, helpSection{"帮助", []helpItem{
+		{"--lang LANG", "人类界面语言：auto、en 或 zh-CN；Agent 输出始终使用英文。", "auto"},
+		{"-h, --help", "显示当前命令的帮助", ""},
+	}})
 	switch command {
 	case "scan":
 		sections = append(sections,

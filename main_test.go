@@ -69,7 +69,7 @@ func TestManualModeDefaults(t *testing.T) {
 		{flags: []string{"--manual"}, want: true},
 		{flags: []string{"--manual=false"}},
 	} {
-		r, _, failure, code := parseRequest(append([]string{"scan"}, tc.flags...), tc.manualDefault)
+		r, _, failure, code := parseRequest(append([]string{"scan"}, tc.flags...), tc.manualDefault, chinese)
 		if code != 0 || failure != nil || r.manual != tc.want {
 			t.Fatalf("default=%t flags=%v manual=%t code=%d failure=%+v", tc.manualDefault, tc.flags, r.manual, code, failure)
 		}

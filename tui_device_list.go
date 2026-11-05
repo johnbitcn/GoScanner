@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/url"
 	"strings"
 
@@ -13,7 +14,7 @@ func (m *humanModel) reloadDrives() {
 }
 
 func (m *humanModel) deviceLabel(endpoint string, width int) string {
-	model, protocol := "未知型号", m.request.protocol
+	model, protocol := m.lang.text("未知型号"), m.request.protocol
 	for _, device := range m.drives {
 		if !deviceHasEndpoint(device.scannerDevice, endpoint) {
 			continue
@@ -34,14 +35,14 @@ func (m *humanModel) deviceLabel(endpoint string, width int) string {
 
 func (m *humanModel) scannerLabel(endpoint, protocol, model string, width int) string {
 	if model == "" {
-		model = "未知型号"
+		model = m.lang.text("未知型号")
 	}
 	ip := endpoint
 	if u, err := url.Parse(endpoint); err == nil && u.Hostname() != "" {
 		ip = u.Hostname()
 	}
 	if endpoint == "" {
-		return tuiMuted.Render("未选择设备")
+		return tuiMuted.Render(m.lang.text("未选择设备"))
 	}
 	ip = terminalText(ip)
 	label := protocolLabel(protocol)
@@ -53,11 +54,11 @@ func (m *humanModel) editDevice() tea.Cmd {
 	m.stopDeviceDiscovery()
 	m.state, m.autoDiscover, m.notice, m.deviceCursor = "device-list", false, "", 0
 	if err := ensureStoredRecordIDs(); err != nil {
-		m.notice = "设备记录初始化失败：" + err.Error()
+		m.notice = m.lang.text("设备记录初始化失败：") + m.lang.error(err)
 	}
 	m.reloadDrives()
 	if m.drivesError != nil {
-		m.notice = "读取设备信息表失败：" + m.drivesError.Error()
+		m.notice = m.lang.text("读取设备信息表失败：") + m.lang.error(m.drivesError)
 	}
 	for i, device := range m.drives {
 		if recordMatches(device, m.request.recordID) || (m.request.recordID == "" && deviceHasEndpoint(device.scannerDevice, m.request.endpoint)) {
@@ -88,7 +89,7 @@ func (m *humanModel) updateDeviceList(msg tea.KeyPressMsg) tea.Cmd {
 		}
 	case "p":
 		if m.deviceCursor >= len(m.drives) {
-			m.notice = "请先选中设备，再修改首选协议"
+			m.notice = m.lang.text("请先选中设备，再修改首选协议")
 			return nil
 		}
 		d := m.drives[m.deviceCursor].scannerDevice
@@ -98,11 +99,11 @@ func (m *humanModel) updateDeviceList(msg tea.KeyPressMsg) tea.Cmd {
 		}
 		e, err := d.endpointFor(preferred)
 		if err != nil {
-			m.notice = "该设备只确认支持 " + protocolLabel(d.Protocol) + "，不能切换首选协议"
+			m.notice = fmt.Sprintf(m.lang.text("该设备只确认支持 %s，不能切换首选协议"), protocolLabel(d.Protocol))
 			return nil
 		}
 		if err := savePreferredProtocol(d.RecordID, preferred); err != nil {
-			m.notice = "保存首选协议失败：" + err.Error()
+			m.notice = m.lang.text("保存首选协议失败：") + m.lang.error(err)
 			return nil
 		}
 		if (recordMatches(m.drives[m.deviceCursor], m.request.recordID) || (m.request.recordID == "" && deviceHasEndpoint(d, m.request.endpoint))) && !m.request.protocolExplicit {
@@ -111,7 +112,7 @@ func (m *humanModel) updateDeviceList(msg tea.KeyPressMsg) tea.Cmd {
 			m.capabilities = nil
 		}
 		m.reloadDrives()
-		m.notice = "已保存首选协议：" + protocolLabel(preferred) + "；连接失败不会自动切换协议"
+		m.notice = fmt.Sprintf(m.lang.text("已保存首选协议：%s；连接失败不会自动切换协议"), protocolLabel(preferred))
 	case "space":
 		if m.deviceCursor == len(m.drives)+1 {
 			m.toggleDeviceDiscovery()
@@ -132,13 +133,13 @@ func (m *humanModel) updateDeviceList(msg tea.KeyPressMsg) tea.Cmd {
 }
 
 func (m *humanModel) deviceListView(width int) string {
-	lines := []string{tuiAccent.Render("已保存的设备")}
+	lines := []string{tuiAccent.Render(m.lang.text("已保存的设备"))}
 	if m.drivesError != nil {
-		lines = append(lines, tuiError.Render("设备信息表不可用，请检查 drives.json"))
+		lines = append(lines, tuiError.Render(m.lang.text("设备信息表不可用，请检查 drives.json")))
 	}
 	focus := 0
 	if len(m.drives) == 0 {
-		lines = append(lines, tuiMuted.Render("暂无已保存设备"))
+		lines = append(lines, tuiMuted.Render(m.lang.text("暂无已保存设备")))
 	}
 	for i, device := range m.drives {
 		prefix := "  "
@@ -147,9 +148,9 @@ func (m *humanModel) deviceListView(width int) string {
 		}
 		lines = append(lines, prefix+m.scannerLabel(device.Endpoint, device.Protocol, device.Model, width-2))
 	}
-	for i, text := range []string{"手动添加", "自动发现  [ ] 关闭"} {
+	for i, text := range []string{m.lang.text("手动添加"), m.lang.text("自动发现  [ ] 关闭")} {
 		if i == 1 && m.autoDiscover {
-			text = "自动发现  [x] 开启"
+			text = m.lang.text("自动发现  [x] 开启")
 		}
 		prefix := "  "
 		if m.deviceCursor == len(m.drives)+i {
@@ -161,9 +162,9 @@ func (m *humanModel) deviceListView(width int) string {
 		lines = append(lines, text)
 	}
 	if m.autoDiscover {
-		text := "搜索完成；新设备已记录，可选择后验证"
+		text := m.lang.text("搜索完成；新设备已记录，可选择后验证")
 		if m.discovering {
-			text = "正在发现局域网设备…"
+			text = m.lang.text("正在发现局域网设备…")
 		}
 		lines = append(lines, tuiMuted.Render(ansi.Truncate(text, width, "…")))
 	}

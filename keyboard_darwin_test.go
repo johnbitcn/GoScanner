@@ -47,10 +47,10 @@ func testKeyInput(t *testing.T) (*keyInput, *os.File) {
 	return keys, master
 }
 
-type promptNotice chan struct{}
+type promptNotice chan string
 
 func (ready promptNotice) Write(data []byte) (int, error) {
-	ready <- struct{}{}
+	ready <- string(data)
 	return len(data), nil
 }
 
@@ -185,8 +185,12 @@ func TestManualCLI(t *testing.T) {
 }
 
 func TestKeyInput(t *testing.T) {
-	for _, scenario := range []string{"space", "enter", "unicode", "arrow", "split-arrow", "escape", "cancel", "cancel-after-escape", "discard-old-input"} {
-		t.Run(scenario, func(t *testing.T) {
+	for _, scenario := range []string{"space", "enter", "unicode", "arrow", "split-arrow", "escape", "cancel", "cancel-after-escape", "discard-old-input", "en/space", "en/unicode", "en/escape"} {
+		name, lang := scenario, chinese
+		if strings.HasPrefix(scenario, "en/") {
+			scenario, lang = strings.TrimPrefix(scenario, "en/"), english
+		}
+		t.Run(name, func(t *testing.T) {
 			keys, master := testKeyInput(t)
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
@@ -202,11 +206,14 @@ func TestKeyInput(t *testing.T) {
 			}
 			done := make(chan result, 1)
 			go func() {
-				more, err := keys.wait(ctx, ready)
+				more, err := keys.wait(ctx, ready, lang)
 				done <- result{more, err}
 			}()
 			select {
-			case <-ready:
+			case prompt := <-ready:
+				if prompt != lang.text("请更换扫描页，按任意键继续扫描；单独按 Esc 结束。")+"\n" {
+					t.Fatalf("wrong %s page-change prompt: %q", lang, prompt)
+				}
 			case <-ctx.Done():
 				t.Fatal("no prompt")
 			}

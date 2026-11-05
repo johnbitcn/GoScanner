@@ -66,6 +66,8 @@
 
 CLI 参数和 TUI 设置页只影响本次运行。设备列表按 `p` 修改的首选协议会持久保存。连接失败不自动换设备、换协议或重新提交扫描任务。
 
+界面语言不属于此 JSON 配置。用 `--lang en`、`--lang zh-CN` 或 `--lang auto` 选择本次人类界面语言；自动选择按 `LC_ALL` > `LC_MESSAGES` > `LANG` > 英文处理。语言选择不写配置，Agent 输出始终使用英文。完整规则见[界面与 Agent 输出](interfaces.md)。
+
 例如，临时覆盖 DPI 和输出位置：
 
 ```bash

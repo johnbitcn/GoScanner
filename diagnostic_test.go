@@ -100,7 +100,7 @@ func TestAgentDiscoveryDiagnosticsUseEnglish(t *testing.T) {
 			return discoverBoth(ctx, wsd, escl)
 		}
 		result, code := agentRun(t, context.Background(), []string{"discover"}, find)
-		warnings := warningText(result.Warnings)
+		warnings := chinese.warnings(result.Warnings)
 		if !strings.Contains(warnings, "WSD discovery failed: Invalid discovery response.") {
 			t.Fatalf("lost project warning: %+v", result)
 		}
@@ -195,7 +195,7 @@ func TestAgentWarningJSONKeepsHumanTextSeparate(t *testing.T) {
 	result := commandResult{Status: "partial", Files: []string{"/扫描件/合同.pdf"}, Warnings: []diagnostic{warning}, Processing: []pageProcessing{{Page: 2, processingInfo: processingInfo{Warnings: []diagnostic{warning}}}}}
 	result.fail("scan_failed", diagnosticf("Cleanup failed: %w", "清理失败：%w", errors.New("设备原始错误")))
 	var out, stderr bytes.Buffer
-	if code := writeResult(&out, &stderr, result, 1, true); code != 1 || stderr.Len() != 0 {
+	if code := writeResult(&out, &stderr, result, 1, true, chinese); code != 1 || stderr.Len() != 0 {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 	var decoded commandResult
@@ -237,8 +237,7 @@ func TestProjectDiagnosticTemplatesAreEnglish(t *testing.T) {
 			}
 			if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
 				pkg, ok := selector.X.(*ast.Ident)
-				humanOnly := strings.HasPrefix(path, "tui") || strings.HasPrefix(path, "keyboard") || path == "device_selection.go"
-				if ok && !humanOnly && path != "diagnostic.go" && ((pkg.Name == "fmt" && selector.Sel.Name == "Errorf") || (pkg.Name == "errors" && selector.Sel.Name == "New")) {
+				if ok && path != "diagnostic.go" && ((pkg.Name == "fmt" && selector.Sel.Name == "Errorf") || (pkg.Name == "errors" && selector.Sel.Name == "New")) {
 					t.Errorf("%s: shared project errors must use diagnosticf to retain their language and origin", path)
 				}
 			}

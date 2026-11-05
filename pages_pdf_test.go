@@ -90,7 +90,7 @@ func TestScanPDFPages(t *testing.T) {
 				wait = nil
 			}
 			var stdout, stderr bytes.Buffer
-			err := scanPages(ctx, c, defaultOptions(), output, split, time.Second, wait, &stdout, &stderr)
+			err := scanPages(ctx, c, defaultOptions(), output, split, time.Second, wait, &stdout, &stderr, chinese)
 			wantError := scenario != "merged" && scenario != "split" && scenario != "single"
 			if (err != nil) != wantError {
 				t.Fatalf("error=%v wantError=%v stdout=%s stderr=%s", err, wantError, &stdout, &stderr)

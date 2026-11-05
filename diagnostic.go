@@ -61,11 +61,3 @@ func agentError(err error) string {
 	}
 	return fmt.Sprintf("External error: %q", err.Error())
 }
-
-func warningText(warnings []diagnostic) string {
-	parts := make([]string, len(warnings))
-	for i, warning := range warnings {
-		parts[i] = warning.Error()
-	}
-	return strings.Join(parts, "；")
-}

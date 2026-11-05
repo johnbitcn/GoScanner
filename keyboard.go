@@ -38,7 +38,7 @@ func openKeyInput() (*keyInput, error) {
 	return keys, nil
 }
 
-func (keys *keyInput) wait(ctx context.Context, prompt io.Writer) (more bool, err error) {
+func (keys *keyInput) wait(ctx context.Context, prompt io.Writer, lang language) (more bool, err error) {
 	mode := keys.original
 	mode.Lflag &^= syscall.ICANON | syscall.ECHO | syscall.IEXTEN
 	mode.Iflag &^= syscall.IXON
@@ -71,7 +71,7 @@ func (keys *keyInput) wait(ctx context.Context, prompt io.Writer) (more bool, er
 	if err := terminalMode(keys.file, setTerminalMode, &mode); err != nil {
 		return false, err
 	}
-	fmt.Fprintln(prompt, "请更换扫描页，按任意键继续扫描；单独按 Esc 结束。")
+	fmt.Fprintln(prompt, lang.text("请更换扫描页，按任意键继续扫描；单独按 Esc 结束。"))
 	for {
 		if err := ctx.Err(); err != nil {
 			return false, err

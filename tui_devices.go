@@ -58,7 +58,7 @@ func (m *humanModel) editDeviceForm() tea.Cmd {
 			host = cfg.Device.Host
 		}
 	} else {
-		m.notice = "读取设备默认值失败：" + err.Error()
+		m.notice = m.lang.text("读取设备默认值失败：") + m.lang.error(err)
 	}
 	if m.request.endpoint != "" {
 		if current, err := deviceFromProtocolEndpoint(m.request.endpoint, m.request.protocol); err == nil {
@@ -69,7 +69,7 @@ func (m *humanModel) editDeviceForm() tea.Cmd {
 	input.Prompt = ""
 	input.SetVirtualCursor(true)
 	input.SetValue(host)
-	input.Placeholder = "扫描仪 IP，例如 192.168.1.100"
+	input.Placeholder = m.lang.text("扫描仪 IP，例如 192.168.1.100")
 	styles := input.Styles()
 	styles.Focused.Prompt, styles.Focused.Placeholder = tuiAccent, tuiMuted
 	styles.Cursor.Color = lipgloss.Color("6")
@@ -98,12 +98,12 @@ func (m *humanModel) discoverDevices() {
 func (m *humanModel) verifyDevice() {
 	ip, err := discoveryIP(strings.TrimSpace(m.deviceInputs[deviceHost].Value()))
 	if err != nil {
-		m.notice = err.Error()
+		m.notice = m.lang.error(err)
 		return
 	}
 	m.stopDeviceDiscovery()
 	m.autoDiscover, m.discovering, m.devices = false, true, nil
-	m.notice = "正在发现 IP " + ip.String() + " 的扫描服务；Esc 返回，不会启动扫描"
+	m.notice = fmt.Sprintf(m.lang.text("正在发现 IP %s 的扫描服务；Esc 返回，不会启动扫描"), ip.String())
 	ctx, cancel := context.WithCancel(m.ctx)
 	m.discoveryCancel = cancel
 	generation := m.discoveryGeneration
@@ -126,12 +126,12 @@ func (m *humanModel) verifyScannerDevice(selected scannerDevice) {
 	}
 	e, err := selected.endpointFor(protocol)
 	if err != nil {
-		m.notice = err.Error()
+		m.notice = m.lang.error(err)
 		return
 	}
 	device, err := deviceFromProtocolEndpoint(e.Endpoint, e.Protocol)
 	if err != nil {
-		m.notice = err.Error()
+		m.notice = m.lang.error(err)
 		return
 	}
 	m.deviceInputs[deviceHost].SetValue(device.Host)
@@ -140,7 +140,7 @@ func (m *humanModel) verifyScannerDevice(selected scannerDevice) {
 	m.deviceField = min(m.deviceField, deviceAuto)
 	m.working, m.state, m.notice = true, "working", ""
 	m.validatingEndpoint = e.Endpoint
-	m.status = "正在验证 " + protocolLabel(e.Protocol) + " 扫描服务；通过后保存默认设备…"
+	m.status = fmt.Sprintf(m.lang.text("正在验证 %s 扫描服务；通过后保存默认设备…"), protocolLabel(e.Protocol))
 	r := m.request
 	r.command, r.endpoint, r.protocol, r.host = "info", e.Endpoint, e.Protocol, ""
 	r.protocolExplicit = true
@@ -155,7 +155,7 @@ func (m *humanModel) verifyScannerDevice(selected scannerDevice) {
 				result.fail("device_store_failed", errRecordNotFound)
 				code = 1
 			} else if err := saveDefaultRecord(m.ctx, result.device.RecordID); err != nil {
-				result.fail("config_save_failed", fmt.Errorf("登记默认设备失败；未启动扫描：%w", err))
+				result.fail("config_save_failed", diagnosticf("Cannot register the default scanner. No scan was started: %w", "登记默认设备失败；未启动扫描：%w", err))
 				code = 1
 			}
 		}
@@ -218,9 +218,9 @@ func (m *humanModel) toggleDeviceDiscovery() {
 }
 
 func (m *humanModel) devicesView(width int) string {
-	lines := []string{tuiAccent.Render("添加设备（只需 IP；先发现并验证，再保存）")}
+	lines := []string{tuiAccent.Render(m.lang.text("添加设备（只需 IP；先发现并验证，再保存）"))}
 	focus := 0
-	for field, name := range []string{"IP", "发现并使用设备", "自动发现"} {
+	for field, name := range []string{"IP", m.lang.text("发现并使用设备"), m.lang.text("自动发现")} {
 		prefix, label := "  ", name
 		if field == m.deviceField {
 			prefix, focus = "> ", len(lines)
@@ -237,19 +237,19 @@ func (m *humanModel) devicesView(width int) string {
 			value = m.deviceInputs[field].View()
 		}
 		if field == deviceAuto {
-			value = tuiMuted.Render("[ ] 关闭")
+			value = tuiMuted.Render(m.lang.text("[ ] 关闭"))
 			if m.autoDiscover {
-				value = tuiSuccess.Render("[x] 开启")
+				value = tuiSuccess.Render(m.lang.text("[x] 开启"))
 			}
 		}
 		lines = append(lines, label+"  "+value)
 	}
 	if m.autoDiscover {
-		status := fmt.Sprintf("发现 %d 台设备；选择后按 Enter 验证并使用", len(m.devices))
+		status := fmt.Sprintf(m.lang.text("发现 %d 台设备；选择后按 Enter 验证并使用"), len(m.devices))
 		if m.discovering {
-			status = "正在发现局域网设备…（关闭开关可停止）"
+			status = m.lang.text("正在发现局域网设备…（关闭开关可停止）")
 		} else if len(m.devices) == 0 {
-			status = "未取得可用设备，可输入 IP 或按 r 重试"
+			status = m.lang.text("未取得可用设备，可输入 IP 或按 r 重试")
 		}
 		lines = append(lines, tuiAccent.Render(ansi.Truncate(status, width, "…")))
 		for i, d := range m.devices {

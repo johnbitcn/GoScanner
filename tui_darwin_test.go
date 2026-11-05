@@ -20,8 +20,16 @@ import (
 )
 
 func TestHumanPTY(t *testing.T) {
-	for _, scenario := range []string{"scan", "manual", "cancel-wait", "cancel-active", "preset-recheck", "settings-list", "color", "default-manual", "single-page", "manual-device", "saved-device"} {
-		t.Run(scenario, func(t *testing.T) {
+	for _, scenario := range []string{"scan", "manual", "cancel-wait", "cancel-active", "preset-recheck", "settings-list", "color", "default-manual", "single-page", "manual-device", "saved-device", "en/scan", "en/manual", "en/cancel-active", "en/settings-list", "en/manual-device"} {
+		name, lang := scenario, chinese
+		if strings.HasPrefix(scenario, "en/") {
+			scenario, lang = strings.TrimPrefix(scenario, "en/"), english
+		}
+		t.Run(name, func(t *testing.T) {
+			pagePrompt := "请更换扫描页"
+			if lang == english {
+				pagePrompt = "Please change the page."
+			}
 			data, image := fixture(t), jpegSample(t)
 			var jobs, cancels, queries atomic.Int32
 			retrieving := make(chan struct{}, 1)
@@ -44,6 +52,10 @@ func TestHumanPTY(t *testing.T) {
 						retrieving <- struct{}{}
 						<-r.Context().Done()
 						return
+					}
+					if scenario == "manual" {
+						// shortcut: text assertions need distinct frames; use a VT emulator to test coalesced updates.
+						time.Sleep(100 * time.Millisecond)
 					}
 					ct, body := mtom(image, "boundary", "cid:image@scanner")
 					w.Header().Set("Content-Type", ct)
@@ -98,6 +110,7 @@ func TestHumanPTY(t *testing.T) {
 			if scenario == "single-page" {
 				args = append(args, "--manual=false")
 			}
+			args = append(args, "--lang", lang.String())
 			cmd := exec.CommandContext(ctx, os.Args[0], args...)
 			cmd.Env = append(os.Environ(), "GOSCANNER_TEST_MANUAL_CHILD=1", "HOME="+dir, "XDG_CACHE_HOME="+dir, "TERM=xterm-256color", "NO_COLOR=1")
 			if scenario == "manual-device" {
@@ -146,13 +159,13 @@ func TestHumanPTY(t *testing.T) {
 					transcript.WriteString(chunk)
 					raw += chunk
 					text := ansi.Strip(raw)
-					if scenario == "manual-device" && stage == 0 && strings.Contains(text, "手动添加") {
+					if scenario == "manual-device" && stage == 0 && strings.Contains(text, lang.text("手动添加")) {
 						if jobs.Load() != 0 || queries.Load() != 0 || strings.Contains(text, "端口") {
 							t.Fatal("manual fields appeared before selection", text)
 						}
 						master.Write([]byte("\r"))
 						stage, raw = 8, ""
-					} else if scenario == "manual-device" && stage == 8 && strings.Contains(text, "添加设备（只需 IP；先发现并验证，再保存）") {
+					} else if scenario == "manual-device" && stage == 8 && strings.Contains(text, lang.text("添加设备（只需 IP；先发现并验证，再保存）")) {
 						if jobs.Load() != 0 || queries.Load() != 0 || strings.Contains(text, "端口") || strings.Contains(text, "路径") {
 							t.Fatal("manual device screen queried or lacks defaults", text)
 						}
@@ -162,32 +175,32 @@ func TestHumanPTY(t *testing.T) {
 						}
 						master.Write([]byte(device.Host + "\r\r"))
 						stage, raw = 7, ""
-					} else if stage == 7 && strings.Contains(text, "Enter 开始扫描") {
+					} else if stage == 7 && strings.Contains(text, lang.text("Enter 开始扫描 · ")) {
 						if jobs.Load() != 0 || queries.Load() != 1 {
 							t.Fatal("manual device should validate once without scanning")
 						}
 						master.Write([]byte("\r"))
 						stage, raw = 1, ""
-					} else if stage == 9 && strings.Contains(text, "已保存的设备") {
+					} else if stage == 9 && strings.Contains(text, lang.text("已保存的设备")) {
 						if !strings.Contains(text, "HP Laser MFP 1188w") || strings.Contains(text, "端口") {
 							t.Fatal("saved device list is incorrect", text)
 						}
 						master.Write([]byte("\r"))
 						stage, raw = 10, ""
-					} else if stage == 10 && strings.Contains(text, "Enter 开始扫描") {
+					} else if stage == 10 && strings.Contains(text, lang.text("Enter 开始扫描 · ")) {
 						if queries.Load() != 2 || jobs.Load() != 0 {
 							t.Fatal("saved selection must revalidate before scanning")
 						}
 						master.Write([]byte("\r"))
 						stage, raw = 1, ""
-					} else if scenario == "preset-recheck" && !sawUnavailable && strings.Contains(text, "无法确认就绪") {
-						if jobs.Load() != 0 || strings.Contains(text, "Enter 开始扫描") {
+					} else if scenario == "preset-recheck" && !sawUnavailable && strings.Contains(text, lang.text("无法确认就绪；未启动扫描")) {
+						if jobs.Load() != 0 || strings.Contains(text, lang.text("Enter 开始扫描 · ")) {
 							t.Fatal("preset busy device falsely ready")
 						}
 						sawUnavailable = true
 						master.Write([]byte("\rr")) // Enter must be ignored; r explicitly checks again.
 						raw = ""
-					} else if stage == 0 && strings.Contains(text, "Enter 开始扫描") {
+					} else if stage == 0 && strings.Contains(text, lang.text("Enter 开始扫描 · ")) {
 						if jobs.Load() != 0 {
 							t.Fatal("scan started without Enter")
 						}
@@ -205,9 +218,9 @@ func TestHumanPTY(t *testing.T) {
 							stage = 1
 						}
 						raw = ""
-					} else if stage == 4 && strings.Contains(text, "应用设置") {
+					} else if stage == 4 && strings.Contains(text, lang.text("应用设置")) {
 						for _, name := range settingNames {
-							if !strings.Contains(text, name) {
+							if !strings.Contains(text, lang.text(name)) {
 								t.Fatalf("missing setting %s in terminal: %q", name, text)
 							}
 						}
@@ -216,13 +229,13 @@ func TestHumanPTY(t *testing.T) {
 					} else if stage == 5 && strings.Contains(text, "300 DPI") {
 						master.Write([]byte("\x1b[B\x1b[B\r" + strings.Repeat("\x1b[B", settingApply) + "\r"))
 						stage, raw = 6, ""
-					} else if stage == 6 && strings.Contains(text, "Enter 开始扫描") {
+					} else if stage == 6 && strings.Contains(text, lang.text("Enter 开始扫描 · ")) {
 						if jobs.Load() != 0 || !strings.Contains(text, "300 DPI") {
 							t.Fatal("settings applied incorrectly or started scanning", text)
 						}
 						master.Write([]byte("\r"))
 						stage, raw = 1, ""
-					} else if stage == 1 && strings.Contains(text, "请更换扫描页") {
+					} else if stage == 1 && strings.Contains(text, pagePrompt) {
 						pagePrompts++
 						key := "\x1b"
 						if (scenario == "manual" || scenario == "default-manual") && pagePrompts == 1 {
@@ -234,7 +247,7 @@ func TestHumanPTY(t *testing.T) {
 						}
 						master.Write([]byte(key))
 						raw = ""
-					} else if stage >= 1 && stage != 3 && strings.Contains(text, "Enter / q 退出") {
+					} else if stage >= 1 && stage != 3 && strings.Contains(text, lang.text("↑/↓ 滚动 · Enter / q 退出")) {
 						master.Write([]byte("\r"))
 						stage = 3
 					}
@@ -247,6 +260,9 @@ func TestHumanPTY(t *testing.T) {
 					waitErr = <-exited
 					t.Fatalf("PTY timed out: %v stage=%d output=%q", waitErr, stage, raw)
 				}
+			}
+			if lang == english {
+				assertNoChinese(t, ansi.Strip(transcript.String()))
 			}
 			if hasTerminalColor(transcript.String()) != (scenario == "color") {
 				t.Fatalf("terminal colors do not respect NO_COLOR: scenario=%s", scenario)

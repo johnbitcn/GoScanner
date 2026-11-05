@@ -132,7 +132,7 @@ candidates:
 func (p *imageProcessor) Process(picture image.Image) (image.Image, processingInfo, error) {
 	var info processingInfo
 	if picture == nil {
-		return nil, info, diagnosticf("preprocess: nil image", "preprocess: nil image")
+		return nil, info, diagnosticf("preprocess: nil image", "图像处理：图像为空")
 	}
 	if !p.deskew && !p.autocrop {
 		return picture, info, nil
@@ -140,14 +140,14 @@ func (p *imageProcessor) Process(picture image.Image) (image.Image, processingIn
 	b := picture.Bounds()
 	w, h := b.Dx(), b.Dy()
 	if w <= 0 || h <= 0 || int64(w) > maxProcessingPixels/int64(h) {
-		return picture, info, diagnosticf("preprocess: invalid or oversized image", "preprocess: invalid or oversized image")
+		return picture, info, diagnosticf("preprocess: invalid or oversized image", "图像处理：图像无效或超过大小限制")
 	}
 	if p.detector == nil {
-		return picture, info, diagnosticf("preprocess: detector is closed", "preprocess: detector is closed")
+		return picture, info, diagnosticf("preprocess: detector is closed", "图像处理：文档检测器已关闭")
 	}
 	detection, err := p.detector.Detect(picture)
 	if err != nil {
-		return picture, info, diagnosticf("preprocess: detection: %w", "preprocess: detection: %w", err)
+		return picture, info, diagnosticf("preprocess: detection: %w", "图像处理：文档检测失败：%w", err)
 	}
 	if !validDocument(detection, w, h) {
 		info.Warnings = append(info.Warnings, diagnosticf("No reliable document boundary was detected. The original image was retained.", "无法可靠检测纸张边界，保留原图"))
@@ -171,7 +171,7 @@ func (p *imageProcessor) Process(picture image.Image) (image.Image, processingIn
 		nw := int(math.Ceil(math.Abs(float64(w)*c) + math.Abs(float64(h)*s)))
 		nh := int(math.Ceil(math.Abs(float64(h)*c) + math.Abs(float64(w)*s)))
 		if int64(nw) > maxProcessingPixels/int64(nh) {
-			return picture, info, diagnosticf("preprocess: rotated image exceeds pixel limit", "preprocess: rotated image exceeds pixel limit")
+			return picture, info, diagnosticf("preprocess: rotated image exceeds pixel limit", "图像处理：旋转后的图像超过像素限制")
 		}
 		// Rotate around the image centre, including any non-zero input bounds.
 		tx := float64(nw)/2 - c*float64(w)/2 - s*float64(h)/2

@@ -177,7 +177,7 @@ func TestReadDeviceChoice(t *testing.T) {
 		_, _ = io.WriteString(w, tc.input)
 		w.Close()
 		var prompt bytes.Buffer
-		got, err := readDeviceChoice(context.Background(), devices, r, &prompt)
+		got, err := readDeviceChoice(context.Background(), devices, r, &prompt, chinese)
 		r.Close()
 		if got != tc.want || (err != nil) != (tc.want == "") {
 			t.Fatalf("input %q => %q, %v", tc.input, got, err)
@@ -191,10 +191,10 @@ func TestReadDeviceChoice(t *testing.T) {
 	defer w.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := readDeviceChoice(ctx, devices, r, io.Discard); !errors.Is(err, context.Canceled) {
+	if _, err := readDeviceChoice(ctx, devices, r, io.Discard, chinese); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation: %v", err)
 	}
-	if _, err := chooseDevice(context.Background(), nil, io.Discard); err == nil || !strings.Contains(err.Error(), "未发现") {
+	if _, err := chooseDevice(context.Background(), nil, io.Discard, chinese); err == nil || !strings.Contains(err.Error(), "未发现") {
 		t.Fatalf("missing-device error: %v", err)
 	}
 }
