@@ -90,7 +90,7 @@ func TestHelpUnicodeWrappingOffsets(t *testing.T) {
 	for _, text := range []string{
 		"扫描仪 IP 地址，不接受主机名或 URL。未配置时可在交互界面选用或添加设备。",
 		"~/.config/goscanner/config.json",
-		"默认：TUI 开启，文本模式关闭。",
+		"默认：未配置时 TUI 开启，文本模式关闭。",
 		"中文👩‍💻与 English words 混排。\n下一段 --manual=false 关闭。",
 	} {
 		for _, width := range []int{8, 16, 20, 36, 56} {

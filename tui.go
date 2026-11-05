@@ -96,6 +96,7 @@ type humanModel struct {
 	choices               []settingChoice
 	choice, field         int
 	draft                 commandRequest
+	draftLanguage         string
 	viewport              viewport.Model
 }
 
@@ -538,9 +539,9 @@ func runTUI(parent context.Context, request commandRequest, stdout, stderr io.Wr
 	cancel()
 	model.tasks.Wait()
 	if err != nil {
-		fmt.Fprintln(stderr, request.language.error(diagnosticf("Terminal interface failed. Task cleanup has finished. Do not immediately repeat the scan: %w", "终端界面失败；已等待任务清理，勿立即重试扫描： %w", err)))
+		fmt.Fprintln(stderr, model.lang.error(diagnosticf("Terminal interface failed. Task cleanup has finished. Do not immediately repeat the scan: %w", "终端界面失败；已等待任务清理，勿立即重试扫描： %w", err)))
 		if !model.lastResult.discovery && model.lastResult.result.Status != "" {
-			fmt.Fprintln(stderr, resultText(model.lastResult.result, false, request.language))
+			fmt.Fprintln(stderr, resultText(model.lastResult.result, false, model.lang))
 		}
 		return exitCode(parent)
 	}

@@ -210,7 +210,7 @@ func helpContent(command string, lang language) (string, []helpSection) {
 				{"--single-page", "将 PDF 每页保存为独立文件；连续扫描时文件名追加页码。仅适用于 PDF。", "关闭"},
 			}},
 			helpSection{"连续扫描", []helpItem{
-				{"--manual[=BOOL]", "连续换页扫描。使用 --manual=false 关闭；Agent 模式不支持。", "TUI 开启，文本模式关闭"},
+				{"--manual[=BOOL]", "连续换页扫描。使用 --manual=false 关闭；Agent 模式不支持。", "未配置时 TUI 开启，文本模式关闭"},
 				{text: "交互界面按 Enter 继续下一页、Esc 结束；文本模式按任意键继续。换页等待不计入超时。"},
 			}},
 			helpSection{"图像处理", []helpItem{

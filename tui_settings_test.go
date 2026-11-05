@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -193,13 +194,122 @@ func TestHumanSettingsCustomInputAndDiscard(t *testing.T) {
 	}
 }
 
+func TestHumanLanguageAutonyms(t *testing.T) {
+	for _, lang := range []language{chinese, english} {
+		m := humanModel{lang: lang, field: settingLanguage}
+		want := []settingChoice{{lang.text("自动（系统语言）"), "auto"}, {"English", "en"}, {"简体中文", "zh-CN"}}
+		if choices := m.settingChoices(); !slices.Equal(choices, want) {
+			t.Fatalf("language=%s choices=%+v want=%+v", lang, choices, want)
+		}
+		for _, choice := range want {
+			m.draftLanguage = choice.value
+			if got := m.settingValues()[settingLanguage]; got != choice.label {
+				t.Fatalf("language=%s preference=%s label=%q want=%q", lang, choice.value, got, choice.label)
+			}
+		}
+	}
+}
+
+func TestHumanSettingsLanguageConfirmation(t *testing.T) {
+	for _, tc := range []struct {
+		name, preference, label string
+		explicit                bool
+		initial, want           language
+	}{
+		{"switch", "en", "English", false, chinese, english},
+		{"switch-chinese", "zh-CN", "简体中文", false, english, chinese},
+		{"explicit-en", "zh-CN", "简体中文", true, english, english},
+		{"explicit-auto", "en", "English", true, chinese, chinese},
+		{"automatic", "auto", "自动（系统语言）", false, chinese, english},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := humanTestModel(t)
+			path, _ := configPath()
+			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+				t.Fatal(err)
+			}
+			original := []byte(`{"language":"auto","scan":{"timeout":"5m"}}`)
+			if err := os.WriteFile(path, original, 0600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("LC_ALL", "en_US")
+			m.lang, m.request.language, m.request.languageExplicit = tc.initial, tc.initial, tc.explicit
+			press(m, 's')
+			label := tc.label
+			if tc.preference == "auto" {
+				label = m.lang.text(label)
+			}
+			chooseSetting(t, m, settingLanguage, label)
+			if data, _ := os.ReadFile(path); string(data) != string(original) || m.lang != tc.initial || m.request.language != tc.initial {
+				t.Fatal("selecting a language applied or saved the draft")
+			}
+			selectSetting(t, m, settingApply)
+			press(m, tea.KeyEnter)
+			if !m.working {
+				t.Fatal("saved settings did not recheck device", m.notice)
+			}
+			m.Update(m.listen())
+			cfg, err := loadConfig()
+			if err != nil || cfg.Language != tc.preference || cfg.Scan.Timeout != "5m" || m.state != "ready" || m.lang != tc.want || m.request.language != tc.want {
+				t.Fatalf("state=%s lang=%s request=%+v cfg=%+v err=%v", m.state, m.lang, m.request, cfg, err)
+			}
+			if m.lang == english {
+				assertNoChinese(t, m.View().Content)
+			}
+		})
+	}
+}
+
+func TestHumanSettingsCancelAndSaveFailure(t *testing.T) {
+	m := humanTestModel(t)
+	path, _ := configPath()
+	original := []byte(`{"language":"auto"}`)
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	before := m.request
+	press(m, 's')
+	chooseSetting(t, m, settingLanguage, "English")
+	chooseSetting(t, m, settingDPI, "300 DPI")
+	press(m, tea.KeyEsc)
+	m.Update(m.listen())
+	if data, _ := os.ReadFile(path); string(data) != string(original) || m.request.opts.DPI != before.opts.DPI || m.lang != before.language {
+		t.Fatal("Esc applied or saved changes")
+	}
+	press(m, 's')
+	chooseSetting(t, m, settingLanguage, "English")
+	chooseSetting(t, m, settingDPI, "300 DPI")
+	if err := os.WriteFile(path, []byte("broken JSON"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	selectSetting(t, m, settingApply)
+	press(m, tea.KeyEnter)
+	if m.state != "settings" || m.working || m.lang != before.language || m.request.opts.DPI != before.opts.DPI || !strings.Contains(m.notice, "保存设置失败") {
+		t.Fatalf("save failure applied a draft: state=%s notice=%s request=%+v", m.state, m.notice, m.request)
+	}
+	if data, _ := os.ReadFile(path); string(data) != "broken JSON" {
+		t.Fatal("invalid configuration was overwritten")
+	}
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	press(m, tea.KeyEnter)
+	m.Update(m.listen())
+	if m.state != "ready" || m.request.opts.DPI != 300 {
+		t.Fatal("draft could not be saved after repairing configuration", m.notice)
+	}
+}
+
 func TestHumanSettingsSmallWindow(t *testing.T) {
 	m := humanTestModel(t)
 	press(m, 's')
 	m.Update(tea.WindowSizeMsg{Width: 40, Height: 12})
 	selectSetting(t, m, settingApply)
 	view := m.View().Content
-	if !strings.Contains(view, "应用设置") || len(strings.Split(view, "\n")) > 12 {
+	if !strings.Contains(view, "保存并应用") || len(strings.Split(view, "\n")) > 12 {
 		t.Fatal("settings cursor is not visible in small terminal", view)
 	}
 	selectSetting(t, m, settingDPI)

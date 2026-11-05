@@ -76,12 +76,13 @@ func configuredLanguage() language {
 }
 
 // Only consume leading global options; subcommand options use flag.FlagSet.
-func leadingLanguage(args []string, lang language) ([]string, language, error) {
+func leadingLanguage(args []string, lang language) ([]string, language, bool, error) {
+	explicit := false
 	for len(args) > 0 {
 		value := ""
 		if args[0] == "--lang" {
 			if len(args) < 2 {
-				return nil, lang, diagnosticf("--lang requires auto, en, or zh-CN.", "--lang 需要指定 auto、en 或 zh-CN")
+				return nil, lang, explicit, diagnosticf("--lang requires auto, en, or zh-CN.", "--lang 需要指定 auto、en 或 zh-CN")
 			}
 			value, args = args[1], args[2:]
 		} else if strings.HasPrefix(args[0], "--lang=") {
@@ -91,11 +92,11 @@ func leadingLanguage(args []string, lang language) ([]string, language, error) {
 		}
 		selected, err := selectLanguage(value)
 		if err != nil {
-			return nil, lang, err
+			return nil, lang, explicit, err
 		}
-		lang = selected
+		lang, explicit = selected, true
 	}
-	return args, lang, nil
+	return args, lang, explicit, nil
 }
 
 func (l language) text(source string) string {

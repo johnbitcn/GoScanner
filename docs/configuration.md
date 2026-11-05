@@ -38,6 +38,8 @@
 | `scan.dpi` | `150` | 正整数，设备必须支持横向和纵向分辨率 |
 | `scan.mode` | `"color"` | `color` 或 `gray`，设备必须支持 |
 | `scan.area` | `"a4"` | `a4`、`full` 或 `x,y,width,height`，单位为毫米 |
+| `scan.manual` | 未配置时 TUI 开启，文本模式关闭 | 连续扫描开关；显式 CLI `--manual` 可覆盖。Agent 拒绝开启状态，需使用 `--manual=false` |
+| `scan.single_page` | `false` | PDF 每页独立保存；只适用于 PDF，显式 `--single-page` 可覆盖 |
 | `scan.timeout` | `"2m0s"` | 正的 Go 时长，例如 `30s`；只影响 `scan` |
 | `output.directory` | `"."` | 非空目录；不存在时尝试创建。相对路径基于命令运行目录；支持 `~` 和 `~/...`，不展开环境变量或 `~用户名` |
 | `output.format` | `"jpg"` | `jpg`、`tiff`、`png` 或 `pdf` |
@@ -67,9 +69,9 @@
 - **扫描设置：** 显式 CLI 参数 > 配置文件 > 内置默认值。
 - **人类界面语言：** 显式 `--lang` > 配置 `language` > 系统语言自动检测。
 
-CLI 参数和 TUI 设置页只影响本次运行。设备列表按 `p` 修改的首选协议会持久保存。连接失败不自动换设备、换协议或重新提交扫描任务。
+CLI 参数只影响本次运行。TUI 设置页中的选择先保留为草稿，选择“保存并应用”并确认后，才写入配置；Esc 放弃，不写配置。设备列表按 `p` 修改的首选协议也会持久保存。连接失败不自动换设备、换协议或重新提交扫描任务。
 
-`language` 可以设为 `"en"`、`"zh-CN"` 或 `"auto"`。省略字段或设为 `"auto"` 时，按 `LC_ALL` > `LC_MESSAGES` > `LANG` 使用第一个非空环境变量；缺少或不支持时回退英文。显式 `--lang auto` 跳过配置中的固定语言，直接使用此自动检测规则。`--lang` 不写回配置；保存默认设备时保留已有 `language`。Agent 输出始终使用英文。
+`language` 可以设为 `"en"`、`"zh-CN"` 或 `"auto"`。省略字段或设为 `"auto"` 时，按 `LC_ALL` > `LC_MESSAGES` > `LANG` 使用第一个非空环境变量；缺少或不支持时回退英文。显式 `--lang auto` 跳过配置中的固定语言，直接使用此自动检测规则。TUI 可选择自动、英文或简体中文，并在“保存并应用”时写入 `language`。没有显式 `--lang` 时，保存后立即切换界面语言；存在该参数时，保留本次参数指定的语言，新偏好供后续未指定参数的运行使用。`--lang` 本身不写回语言偏好；保存默认设备时保留已有 `language`。Agent 输出始终使用英文。
 
 人类帮助也使用此优先级，只提取语言字段，不应用或校验扫描设置。配置无法读取、JSON 损坏或语言值无效时，帮助回退到系统语言，显式 `--lang` 仍有效。正常执行命令仍严格校验配置；无效的 `language` 返回 `invalid_config`，不会静默执行扫描。Agent 帮助不读取配置。完整规则见[界面与 Agent 输出](interfaces.md)。
 
@@ -83,7 +85,22 @@ goscanner scan --dpi 300 -o ~/Desktop/once.pdf
 
 TUI 中确认设备后，程序先只读验证，再保存设备记录和默认引用。有效但忙碌的设备可以登记；扫描仍需设备空闲且参数有效。普通 `info` 不因此重写默认选择，Agent 不写配置或设备表。
 
+### TUI 设置保存范围
+
+“保存并应用”会保存界面中的全部可见值，包括由本次 CLI 参数带入的扫描参数，而不只保存本次改动的单项：
+
+- 语言：`language`；保存的是菜单偏好，不把显式 `--lang` 自动写回。
+- 扫描参数：`scan.dpi`、`scan.mode`、`scan.area`、`scan.manual`、`scan.single_page`。
+- 输出：`output.directory`、`output.format`。当前文件路径只用于本次扫描，不保存文件名；后续仍自动生成时间戳文件名。
+- 图像处理：`processing.deskew`、`processing.autocrop`。
+
+保存时重新读取配置，合并上述字段，保留设备引用、超时等其他设置。保存失败时保留草稿和原配置，不应用修改，可修复配置后重试。成功后重新检查设备，不自动启动扫描。
+
+保存连续扫描为开启后，普通文本模式也使用此偏好；Agent 会返回 `unsupported_interaction`，除非显式传入 `--manual=false`。未配置 `scan.manual` 时，保留原来的 TUI 开启／文本模式关闭默认行为。
+
 ## 4. 错误与安全保存
+
+旧程序可能不识别 `language`、`scan.manual` 或 `scan.single_page`，并因未知字段返回 `invalid_config`。保存新设置后，请使用支持这些字段的程序。若需回退，先备份配置，再移除旧版不支持的字段；不要用旧版示例覆盖整个文件。
 
 - 引用已失效时返回 `device_record_not_found`。TUI 可主动重新选择；不会按 IP、型号或列表顺序改绑。显式 `--host` 或 `--endpoint` 可覆盖一个已失效但格式合法的默认引用。
 - 查询发现可比较的设备身份明确冲突时返回 `device_identity_conflict`，不保存默认选择、不创建扫描任务。

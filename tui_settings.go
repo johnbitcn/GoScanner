@@ -22,16 +22,23 @@ const (
 	settingSinglePage
 	settingDeskew
 	settingAutocrop
+	settingLanguage
 	settingApply
 )
 
-var settingNames = []string{"分辨率", "颜色", "扫描区域", "输出格式", "输出路径", "连续扫描", "PDF 每页独立保存", "AI 纠偏", "AI 裁切", "应用设置"}
+var settingNames = []string{"分辨率", "颜色", "扫描区域", "输出格式", "输出路径", "连续扫描", "PDF 每页独立保存", "AI 纠偏", "AI 裁切", "界面语言", "保存并应用"}
 
 type settingChoice struct{ label, value string }
 
 func (m *humanModel) editSettings() tea.Cmd {
 	m.draft, m.state, m.field, m.notice = m.request, "settings", settingDPI, ""
 	m.choices, m.editing = nil, false
+	m.draftLanguage = "auto"
+	if cfg, err := loadConfig(); err == nil {
+		m.draftLanguage = cfg.Language
+	} else {
+		m.notice = m.lang.error(err)
+	}
 	m.viewport.GotoTop()
 	return nil
 }
@@ -88,11 +95,20 @@ func (m *humanModel) settingValues() []string {
 	if outputFormatLabel(m.draft.output) != "PDF" {
 		single = m.lang.text("不可用（仅 PDF）")
 	}
+	language := m.lang.text("自动（系统语言）")
+	if m.draftLanguage == "en" {
+		language = "English"
+	} else if m.draftLanguage == "zh-CN" {
+		language = "简体中文"
+	}
 	return []string{fmt.Sprintf("%d DPI", m.draft.opts.DPI), mode, area, m.lang.text(outputFormatLabel(m.draft.output)), m.draft.output,
-		onOff(m.draft.manual), single, onOff(m.draft.opts.Deskew), onOff(m.draft.opts.Autocrop), m.lang.text("校验并返回扫描页")}
+		onOff(m.draft.manual), single, onOff(m.draft.opts.Deskew), onOff(m.draft.opts.Autocrop), language, m.lang.text("保存配置，重新检查设备")}
 }
 
 func (m *humanModel) settingChoices() []settingChoice {
+	if m.field == settingLanguage {
+		return []settingChoice{{m.lang.text("自动（系统语言）"), "auto"}, {"English", "en"}, {"简体中文", "zh-CN"}}
+	}
 	if m.settingToggle() != nil {
 		return []settingChoice{{m.lang.text("关闭"), "false"}, {m.lang.text("开启"), "true"}}
 	}
@@ -165,6 +181,20 @@ func (m *humanModel) openSetting() tea.Cmd {
 			m.notice = m.lang.error(err)
 			return nil
 		}
+		selected := m.lang
+		if !m.request.languageExplicit {
+			var err error
+			selected, err = selectLanguage(m.draftLanguage)
+			if err != nil {
+				m.notice = m.lang.error(err)
+				return nil
+			}
+		}
+		if err := saveHumanSettings(m.draft, m.draftLanguage); err != nil {
+			m.notice = m.lang.error(diagnosticf("Cannot save settings: %w", "保存设置失败：%w", err))
+			return nil
+		}
+		m.lang, m.draft.language = selected, selected
 		m.request = m.draft
 		m.checkDevice()
 		return nil
@@ -190,6 +220,8 @@ func (m *humanModel) confirmSettingChoice() tea.Cmd {
 	choice := m.choices[m.choice]
 	m.choices = nil
 	switch m.field {
+	case settingLanguage:
+		m.draftLanguage = choice.value
 	case settingDPI:
 		m.draft.opts.DPI, _ = strconv.Atoi(choice.value)
 	case settingMode:
@@ -285,7 +317,8 @@ func (m *humanModel) updateSettings(msg tea.KeyPressMsg) tea.Cmd {
 }
 
 func (m *humanModel) settingsView(width int) string {
-	lines := []string{tuiAccent.Render(m.lang.text("设置（仅本次运行）"))}
+	lines := []string{tuiAccent.Render(m.lang.text("设置（确认后保存）")),
+		tuiMuted.Render(m.lang.text("Esc 放弃修改；--lang 优先于语言偏好。输出路径仅保存目录和格式。"))}
 	values, focus := m.settingValues(), 0
 	for field, name := range settingNames {
 		name = m.lang.text(name)

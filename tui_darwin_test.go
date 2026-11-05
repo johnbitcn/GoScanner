@@ -20,7 +20,7 @@ import (
 )
 
 func TestHumanPTY(t *testing.T) {
-	for _, scenario := range []string{"scan", "manual", "cancel-wait", "cancel-active", "preset-recheck", "settings-list", "color", "default-manual", "single-page", "manual-device", "saved-device", "en/scan", "en/manual", "en/cancel-active", "en/settings-list", "en/manual-device", "config-en/scan"} {
+	for _, scenario := range []string{"scan", "manual", "cancel-wait", "cancel-active", "preset-recheck", "settings-list", "color", "default-manual", "single-page", "manual-device", "saved-device", "en/scan", "en/manual", "en/cancel-active", "en/settings-list", "en/manual-device", "config-en/scan", "language-switch", "en/language-override"} {
 		name, lang := scenario, chinese
 		fromConfig := strings.HasPrefix(scenario, "config-")
 		scenario = strings.TrimPrefix(scenario, "config-")
@@ -112,12 +112,18 @@ func TestHumanPTY(t *testing.T) {
 			if scenario == "single-page" {
 				args = append(args, "--manual=false")
 			}
-			if fromConfig {
+			if scenario == "language-override" {
+				args = append([]string{args[0], args[1], "--lang", "en"}, args[2:]...)
+			} else if fromConfig || scenario == "language-switch" {
 				configPath := filepath.Join(dir, ".config", "goscanner", "config.json")
 				if err := os.MkdirAll(filepath.Dir(configPath), 0700); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(configPath, []byte(`{"language":"en"}`), 0600); err != nil {
+				config, err := json.Marshal(map[string]string{"language": lang.String()})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(configPath, config, 0600); err != nil {
 					t.Fatal(err)
 				}
 			} else {
@@ -222,7 +228,7 @@ func TestHumanPTY(t *testing.T) {
 							}
 							master.Write([]byte("d"))
 							stage = 9
-						} else if scenario == "settings-list" {
+						} else if scenario == "settings-list" || scenario == "language-switch" || scenario == "language-override" {
 							master.Write([]byte("s"))
 							stage = 4
 						} else {
@@ -230,20 +236,52 @@ func TestHumanPTY(t *testing.T) {
 							stage = 1
 						}
 						raw = ""
-					} else if stage == 4 && strings.Contains(text, lang.text("应用设置")) {
+					} else if stage == 4 && strings.Contains(text, lang.text("保存并应用")) {
 						for _, name := range settingNames {
 							if !strings.Contains(text, lang.text(name)) {
 								t.Fatalf("missing setting %s in terminal: %q", name, text)
 							}
 						}
+						if scenario == "language-switch" || scenario == "language-override" {
+							master.Write([]byte(strings.Repeat("\x1b[B", settingLanguage) + "\r"))
+							stage, raw = 11, ""
+						} else {
+							master.Write([]byte("\r"))
+							stage, raw = 5, ""
+						}
+					} else if stage == 11 && strings.Contains(text, lang.text("自动（系统语言）")) {
+						choice := 2
+						if scenario == "language-switch" {
+							choice, lang, pagePrompt = 1, english, "Please change the page."
+						}
+						master.Write([]byte("\x1b[A\x1b[A" + strings.Repeat("\x1b[B", choice) + "\r\x1b[B\r"))
+						stage, raw = 12, ""
+					} else if stage == 12 && strings.Contains(text, lang.text("Enter 开始扫描 · ")) {
+						data, err := os.ReadFile(filepath.Join(dir, ".config", "goscanner", "config.json"))
+						var cfg config
+						if err != nil || json.Unmarshal(data, &cfg) != nil {
+							t.Fatal("settings confirmation did not save configuration", err)
+						}
+						want := "zh-CN"
+						if scenario == "language-switch" {
+							want = "en"
+						}
+						if cfg.Language != want || queries.Load() != 2 || jobs.Load() != 0 {
+							t.Fatal("language or readiness was not applied safely", cfg.Language, queries.Load(), jobs.Load())
+						}
 						master.Write([]byte("\r"))
-						stage, raw = 5, ""
+						stage, raw = 1, ""
 					} else if stage == 5 && strings.Contains(text, "300 DPI") {
 						master.Write([]byte("\x1b[B\x1b[B\r" + strings.Repeat("\x1b[B", settingApply) + "\r"))
 						stage, raw = 6, ""
 					} else if stage == 6 && strings.Contains(text, lang.text("Enter 开始扫描 · ")) {
 						if jobs.Load() != 0 || !strings.Contains(text, "300 DPI") {
 							t.Fatal("settings applied incorrectly or started scanning", text)
+						}
+						data, err := os.ReadFile(filepath.Join(dir, ".config", "goscanner", "config.json"))
+						var cfg config
+						if err != nil || json.Unmarshal(data, &cfg) != nil || cfg.Scan.DPI != 300 || cfg.Language != "auto" || cfg.Output.Directory != dir || cfg.Output.Format != "pdf" {
+							t.Fatal("confirmed settings were not persisted or CLI language leaked into the preference", string(data), err)
 						}
 						master.Write([]byte("\r"))
 						stage, raw = 1, ""
@@ -273,8 +311,9 @@ func TestHumanPTY(t *testing.T) {
 					t.Fatalf("PTY timed out: %v stage=%d output=%q", waitErr, stage, raw)
 				}
 			}
-			if lang == english {
-				assertNoChinese(t, ansi.Strip(transcript.String()))
+			if lang == english && scenario != "language-switch" {
+				// Language autonyms remain in their native script in either UI language.
+				assertNoChinese(t, strings.ReplaceAll(ansi.Strip(transcript.String()), "简体中文", ""))
 			}
 			if hasTerminalColor(transcript.String()) != (scenario == "color") {
 				t.Fatalf("terminal colors do not respect NO_COLOR: scenario=%s", scenario)

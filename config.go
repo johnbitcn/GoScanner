@@ -19,10 +19,12 @@ type config struct {
 	Language string       `json:"language"`
 	Device   deviceConfig `json:"device"`
 	Scan     struct {
-		DPI     int    `json:"dpi"`
-		Mode    string `json:"mode"`
-		Area    string `json:"area"`
-		Timeout string `json:"timeout"`
+		DPI        int    `json:"dpi"`
+		Mode       string `json:"mode"`
+		Area       string `json:"area"`
+		Timeout    string `json:"timeout"`
+		Manual     *bool  `json:"manual,omitempty"`
+		SinglePage bool   `json:"single_page,omitempty"`
 	} `json:"scan"`
 	Output struct {
 		Directory string `json:"directory"`
@@ -144,16 +146,23 @@ func saveDefaultDevice(device deviceConfig) error {
 		device.Protocol = ""
 		device.Scheme = ""
 	}
+	return updateConfig(func(fields map[string]json.RawMessage) (err error) {
+		fields["device"], err = json.Marshal(device)
+		return err
+	})
+}
+
+func updateConfig(change func(map[string]json.RawMessage) error) error {
 	path, err := configPath()
 	if err != nil {
 		return err
 	}
 	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return diagnosticf("The configuration file is a symbolic link. Set device manually. The link will not be automatically replaced.", "配置文件是符号链接；请手动设置 device，拒绝自动替换链接")
+		return diagnosticf("The configuration file is a symbolic link. Edit it manually; the link will not be replaced.", "配置文件是符号链接；请手动修改配置，拒绝自动替换链接")
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	// 选择设备可能耗时；重新读取配置，仅更新 device，保留期间修改的其他设置。
+	// Reread before merging so unrelated edits made while the UI was open survive.
 	data, err := os.ReadFile(path)
 	fields := make(map[string]json.RawMessage)
 	if err == nil {
@@ -166,8 +175,7 @@ func saveDefaultDevice(device deviceConfig) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	fields["device"], err = json.Marshal(device)
-	if err != nil {
+	if err := change(fields); err != nil {
 		return err
 	}
 	data, err = json.MarshalIndent(fields, "", "  ")
@@ -195,6 +203,56 @@ func saveDefaultDevice(device deviceConfig) error {
 	return os.Rename(file.Name(), path)
 }
 
+func saveHumanSettings(r commandRequest, languagePreference string) error {
+	if err := r.validateScan(); err != nil {
+		return err
+	}
+	if _, err := selectLanguage(languagePreference); err != nil {
+		return err
+	}
+	format := strings.TrimPrefix(strings.ToLower(filepath.Ext(r.output)), ".")
+	if format == "jpeg" {
+		format = "jpg"
+	} else if format == "tif" {
+		format = "tiff"
+	}
+	return updateConfig(func(fields map[string]json.RawMessage) error {
+		data, err := json.Marshal(languagePreference)
+		if err != nil {
+			return err
+		}
+		fields["language"] = data
+		for name, values := range map[string]map[string]any{
+			"scan":       {"dpi": r.opts.DPI, "mode": r.opts.Mode, "area": r.area, "manual": r.manual, "single_page": r.singlePage},
+			"output":     {"directory": filepath.Dir(r.output), "format": format},
+			"processing": {"deskew": r.opts.Deskew, "autocrop": r.opts.Autocrop},
+		} {
+			var section map[string]json.RawMessage
+			if data, exists := fields[name]; exists {
+				if err := json.Unmarshal(data, &section); err != nil {
+					return err
+				}
+			}
+			if section == nil {
+				section = make(map[string]json.RawMessage)
+			}
+			for key, value := range values {
+				data, err := json.Marshal(value)
+				if err != nil {
+					return err
+				}
+				section[key] = data
+			}
+			data, err := json.Marshal(section)
+			if err != nil {
+				return err
+			}
+			fields[name] = data
+		}
+		return nil
+	})
+}
+
 func (c config) apply(flags *flag.FlagSet, command string) error {
 	explicit := make(map[string]bool)
 	flags.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
@@ -217,7 +275,11 @@ func (c config) apply(flags *flag.FlagSet, command string) error {
 			setting{"timeout", "scan.timeout", c.Scan.Timeout},
 			setting{"deskew", "processing.deskew", strconv.FormatBool(c.Processing.Deskew)},
 			setting{"autocrop", "processing.autocrop", strconv.FormatBool(c.Processing.Autocrop)},
+			setting{"single-page", "scan.single_page", strconv.FormatBool(c.Scan.SinglePage)},
 		)
+		if c.Scan.Manual != nil {
+			values = append(values, setting{"manual", "scan.manual", strconv.FormatBool(*c.Scan.Manual)})
+		}
 	}
 	for _, v := range values {
 		if !explicit[v.name] {

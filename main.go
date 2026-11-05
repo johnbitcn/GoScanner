@@ -23,6 +23,7 @@ type commandRequest struct {
 	command, endpoint, protocol, host, area, output string
 	recordID                                        string
 	language                                        language
+	languageExplicit                                bool
 	device                                          *scannerDevice
 	registerDefault                                 bool
 	timeout                                         time.Duration
@@ -74,7 +75,7 @@ func parseRequest(args []string, manualDefault bool, lang language) (r commandRe
 			languageErr = err
 			return err
 		}
-		r.language = selected
+		r.language, r.languageExplicit = selected, true
 		return nil
 	})
 	r.timeout = 2 * time.Minute
@@ -215,7 +216,7 @@ func runWithDiscovery(parent context.Context, args []string, stdout, stderr io.W
 	if !agent {
 		lang = configuredLanguage()
 	}
-	args, lang, languageErr := leadingLanguage(args, lang)
+	args, lang, languageExplicit, languageErr := leadingLanguage(args, lang)
 	if languageErr != nil {
 		result := commandResult{Status: "ok"}
 		result.fail("invalid_arguments", languageErr)
@@ -231,6 +232,7 @@ func runWithDiscovery(parent context.Context, args []string, stdout, stderr io.W
 		return writeResult(stdout, stderr, result, 2, agent, lang)
 	}
 	r, help, failure, code := parseRequest(args, humanTUI, lang)
+	r.languageExplicit = r.languageExplicit || languageExplicit
 	lang = r.language
 	if failure != nil {
 		result.Status, result.Error = "error", failure

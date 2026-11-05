@@ -112,6 +112,8 @@ func TestConfigApply(t *testing.T) {
 				f.String("area", "a4", "")
 				f.Bool("deskew", false, "")
 				f.Bool("autocrop", false, "")
+				f.Bool("manual", false, "")
+				f.Bool("single-page", false, "")
 				if err := f.Parse([]string{"--dpi=600", "--deskew=false", "--autocrop=false", "--host=127.0.0.1"}); err != nil {
 					t.Fatal(err)
 				}
