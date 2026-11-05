@@ -98,6 +98,7 @@ func TestConfigApply(t *testing.T) {
 		t.Run(command, func(t *testing.T) {
 			f := flag.NewFlagSet(command, flag.ContinueOnError)
 			f.Duration("timeout", time.Second, "")
+			f.String("theme", "auto", "")
 			if command != "discover" {
 				f.String("host", "", "")
 				f.String("protocol", "", "")
@@ -125,7 +126,7 @@ func TestConfigApply(t *testing.T) {
 			if err := c.apply(f, command); err != nil {
 				t.Fatal(err)
 			}
-			want := map[string]string{"timeout": "1s"}
+			want := map[string]string{"timeout": "1s", "theme": "auto"}
 			switch command {
 			case "scan":
 				want = map[string]string{"timeout": "5s", "dpi": "600", "mode": "gray", "area": "full", "deskew": "false", "autocrop": "false", "host": "127.0.0.1", "port": "8000", "path": "/vendor/scan", "endpoint": ""}

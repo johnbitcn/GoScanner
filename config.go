@@ -17,6 +17,7 @@ const defaultScanTimeout = 2 * time.Minute
 
 type config struct {
 	Language string       `json:"language"`
+	Theme    string       `json:"theme"`
 	Device   deviceConfig `json:"device"`
 	Scan     struct {
 		DPI        int    `json:"dpi"`
@@ -39,6 +40,7 @@ type config struct {
 func defaultConfig() config {
 	var c config
 	c.Language = "auto"
+	c.Theme = "auto"
 	c.Device.Port, c.Device.Path = 8018, "/wsd/scan"
 	c.Scan.DPI, c.Scan.Mode, c.Scan.Area = 150, "color", "a4"
 	c.Scan.Timeout = defaultScanTimeout.String()
@@ -86,6 +88,9 @@ func decodeConfig(data []byte, path string) (config, error) {
 	}
 	if err == nil {
 		_, err = selectLanguage(c.Language)
+	}
+	if err == nil {
+		err = validateTheme(c.Theme)
 	}
 	if err != nil {
 		return c, diagnosticf("Cannot parse the configuration file %q: %w", "解析配置文件 %s：%w", path, err)
@@ -210,6 +215,12 @@ func saveHumanSettings(r commandRequest, languagePreference string) error {
 	if _, err := selectLanguage(languagePreference); err != nil {
 		return err
 	}
+	if r.theme == "" {
+		r.theme = "auto"
+	}
+	if err := validateTheme(r.theme); err != nil {
+		return err
+	}
 	format := strings.TrimPrefix(strings.ToLower(filepath.Ext(r.output)), ".")
 	if format == "jpeg" {
 		format = "jpg"
@@ -222,6 +233,10 @@ func saveHumanSettings(r commandRequest, languagePreference string) error {
 			return err
 		}
 		fields["language"] = data
+		fields["theme"], err = json.Marshal(r.theme)
+		if err != nil {
+			return err
+		}
 		for name, values := range map[string]map[string]any{
 			"scan":       {"dpi": r.opts.DPI, "mode": r.opts.Mode, "area": r.area, "manual": r.manual, "single_page": r.singlePage},
 			"output":     {"directory": filepath.Dir(r.output), "format": format},
@@ -257,7 +272,7 @@ func (c config) apply(flags *flag.FlagSet, command string) error {
 	explicit := make(map[string]bool)
 	flags.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
 	type setting struct{ name, key, value string }
-	values := []setting{}
+	values := []setting{{"theme", "theme", c.Theme}}
 	if command != "discover" && !explicit["endpoint"] && c.Device.RecordID == "" {
 		values = append(values,
 			setting{"host", "device.host", c.Device.Host},

@@ -15,6 +15,7 @@ func agentHelpContent(command string) (string, []helpSection) {
 			{"Global options", []helpItem{
 				{"--agent", "Noninteractive JSON output. Must precede the command.", ""},
 				{"--lang LANG", "Human interface language: auto, en, or zh-CN. Agent output remains English.", "auto"},
+				{"--theme MODE", "TUI theme: auto, light, or dark. Overrides configuration. Auto falls back to dark. Does not affect Agent output.", "auto"},
 				{"-h, --help", "Show help without reading configuration or accessing scanners.", ""},
 			}},
 			{"Configuration", []helpItem{{text: "~/.config/goscanner/config.json"}}},
@@ -74,6 +75,7 @@ func agentHelpContent(command string) (string, []helpSection) {
 	}
 	sections = append(sections, helpSection{"Help", []helpItem{
 		{"--lang LANG", "Human interface language: auto, en, or zh-CN. Agent output remains English.", "auto"},
+		{"--theme MODE", "TUI theme: auto, light, or dark. Overrides configuration. Auto falls back to dark. Does not affect Agent output.", "auto"},
 		{"-h, --help", "Show help for this command.", ""},
 	}})
 	switch command {

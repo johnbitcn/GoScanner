@@ -42,12 +42,12 @@ func (m *humanModel) scannerLabel(endpoint, protocol, model string, width int) s
 		ip = u.Hostname()
 	}
 	if endpoint == "" {
-		return tuiMuted.Render(m.lang.text("未选择设备"))
+		return m.lang.text("未选择设备")
 	}
 	ip = terminalText(ip)
 	label := protocolLabel(protocol)
 	model = ansi.Truncate(terminalText(model), max(1, width-4-ansi.StringWidth(ip)-ansi.StringWidth(label)), "…")
-	return tuiModel.Render(model) + "  " + tuiPath.Render(ip) + "  " + tuiProtocol.Render(label)
+	return m.styles.text.Bold(true).Render(model) + "  " + m.styles.value.Render(ip) + "  " + m.styles.value.Render(label)
 }
 
 func (m *humanModel) editDevice() tea.Cmd {
@@ -133,18 +133,18 @@ func (m *humanModel) updateDeviceList(msg tea.KeyPressMsg) tea.Cmd {
 }
 
 func (m *humanModel) deviceListView(width int) string {
-	lines := []string{tuiAccent.Render(m.lang.text("已保存的设备"))}
+	lines := []string{m.styles.accent.Render(m.lang.text("已保存的设备"))}
 	if m.drivesError != nil {
-		lines = append(lines, tuiError.Render(m.lang.text("设备信息表不可用，请检查 drives.json")))
+		lines = append(lines, m.styles.failure.Render(m.lang.text("设备信息表不可用，请检查 drives.json")))
 	}
 	focus := 0
 	if len(m.drives) == 0 {
-		lines = append(lines, tuiMuted.Render(m.lang.text("暂无已保存设备")))
+		lines = append(lines, m.styles.muted.Render(m.lang.text("暂无已保存设备")))
 	}
 	for i, device := range m.drives {
 		prefix := "  "
 		if m.deviceCursor == i {
-			prefix, focus = tuiAccent.Render("> "), len(lines)
+			prefix, focus = m.styles.accent.Render("> "), len(lines)
 		}
 		lines = append(lines, prefix+m.scannerLabel(device.Endpoint, device.Protocol, device.Model, width-2))
 	}
@@ -155,7 +155,7 @@ func (m *humanModel) deviceListView(width int) string {
 		prefix := "  "
 		if m.deviceCursor == len(m.drives)+i {
 			prefix, focus = "> ", len(lines)
-			text = tuiAccent.Render(prefix + text)
+			text = m.styles.accent.Render(prefix + text)
 		} else {
 			text = prefix + text
 		}
@@ -166,7 +166,7 @@ func (m *humanModel) deviceListView(width int) string {
 		if m.discovering {
 			text = m.lang.text("正在发现局域网设备…")
 		}
-		lines = append(lines, tuiMuted.Render(ansi.Truncate(text, width, "…")))
+		lines = append(lines, m.styles.muted.Render(ansi.Truncate(text, width, "…")))
 	}
 	m.viewport.SetWidth(width)
 	m.viewport.SetHeight(max(1, m.height-8))

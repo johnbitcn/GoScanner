@@ -23,19 +23,21 @@ const (
 	settingDeskew
 	settingAutocrop
 	settingLanguage
+	settingTheme
 	settingApply
 )
 
-var settingNames = []string{"分辨率", "颜色", "扫描区域", "输出格式", "输出路径", "连续扫描", "PDF 每页独立保存", "AI 纠偏", "AI 裁切", "界面语言", "保存并应用"}
+var settingNames = []string{"分辨率", "颜色", "扫描区域", "输出格式", "输出路径", "连续扫描", "PDF 每页独立保存", "AI 纠偏", "AI 裁切", "界面语言", "界面主题", "保存并应用"}
 
 type settingChoice struct{ label, value string }
 
 func (m *humanModel) editSettings() tea.Cmd {
 	m.draft, m.state, m.field, m.notice = m.request, "settings", settingDPI, ""
 	m.choices, m.editing = nil, false
-	m.draftLanguage = "auto"
+	m.draftLanguage, m.draft.theme = "auto", "auto"
 	if cfg, err := loadConfig(); err == nil {
 		m.draftLanguage = cfg.Language
+		m.draft.theme = cfg.Theme
 	} else {
 		m.notice = m.lang.error(err)
 	}
@@ -102,10 +104,13 @@ func (m *humanModel) settingValues() []string {
 		language = "简体中文"
 	}
 	return []string{fmt.Sprintf("%d DPI", m.draft.opts.DPI), mode, area, m.lang.text(outputFormatLabel(m.draft.output)), m.draft.output,
-		onOff(m.draft.manual), single, onOff(m.draft.opts.Deskew), onOff(m.draft.opts.Autocrop), language, m.lang.text("保存配置，重新检查设备")}
+		onOff(m.draft.manual), single, onOff(m.draft.opts.Deskew), onOff(m.draft.opts.Autocrop), language, m.themeLabel(m.draft.theme), m.lang.text("保存配置，重新检查设备")}
 }
 
 func (m *humanModel) settingChoices() []settingChoice {
+	if m.field == settingTheme {
+		return []settingChoice{{m.lang.text("自动"), "auto"}, {m.lang.text("浅色背景"), "light"}, {m.lang.text("深色背景"), "dark"}}
+	}
 	if m.field == settingLanguage {
 		return []settingChoice{{m.lang.text("自动（系统语言）"), "auto"}, {"English", "en"}, {"简体中文", "zh-CN"}}
 	}
@@ -152,10 +157,7 @@ func (m *humanModel) settingChoices() []settingChoice {
 func (m *humanModel) beginSettingInput() tea.Cmd {
 	m.input = textinput.New()
 	m.input.SetVirtualCursor(true)
-	styles := m.input.Styles()
-	styles.Focused.Prompt, styles.Focused.Placeholder = tuiAccent, tuiMuted
-	styles.Cursor.Color = lipgloss.Color("6")
-	m.input.SetStyles(styles)
+	m.input.SetStyles(m.styles.inputStyles())
 	m.input.SetWidth(max(5, m.width-6))
 	value := m.draft.output
 	if m.field == settingArea {
@@ -195,9 +197,14 @@ func (m *humanModel) openSetting() tea.Cmd {
 			return nil
 		}
 		m.lang, m.draft.language = selected, selected
+		previousTheme := m.request.theme
 		m.request = m.draft
+		if m.request.themeExplicit {
+			m.request.theme = previousTheme
+		}
+		m.applyTheme()
 		m.checkDevice()
-		return nil
+		return m.queryTheme()
 	}
 	if m.field == settingPath {
 		return m.beginSettingInput()
@@ -220,6 +227,8 @@ func (m *humanModel) confirmSettingChoice() tea.Cmd {
 	choice := m.choices[m.choice]
 	m.choices = nil
 	switch m.field {
+	case settingTheme:
+		m.draft.theme = choice.value
 	case settingLanguage:
 		m.draftLanguage = choice.value
 	case settingDPI:
@@ -317,8 +326,8 @@ func (m *humanModel) updateSettings(msg tea.KeyPressMsg) tea.Cmd {
 }
 
 func (m *humanModel) settingsView(width int) string {
-	lines := []string{tuiAccent.Render(m.lang.text("设置（确认后保存）")),
-		tuiMuted.Render(m.lang.text("Esc 放弃修改；--lang 优先于语言偏好。输出路径仅保存目录和格式。"))}
+	lines := []string{m.styles.accent.Render(m.lang.text("设置（确认后保存）")),
+		m.styles.muted.Render(m.lang.text("Esc 放弃修改；启动参数优先于界面偏好。输出路径仅保存目录和格式。"))}
 	values, focus := m.settingValues(), 0
 	for field, name := range settingNames {
 		name = m.lang.text(name)
@@ -329,18 +338,9 @@ func (m *humanModel) settingsView(width int) string {
 		label := prefix + lipgloss.NewStyle().Width(18).Render(name)
 		value := terminalText(values[field])
 		if field == m.field {
-			label, value = tuiAccent.Render(label), tuiAccent.Render(value)
+			label, value = m.styles.accent.Render(label), m.styles.accent.Render(value)
 		} else {
-			label = tuiMuted.Render(label)
-			if values[field] == m.lang.text("开启") {
-				value = tuiSuccess.Render(value)
-			}
-			if values[field] == m.lang.text("关闭") || strings.HasPrefix(values[field], m.lang.text("不可用")) {
-				value = tuiMuted.Render(value)
-			}
-			if field == settingPath {
-				value = tuiPath.Render(value)
-			}
+			value = m.styles.value.Render(value)
 		}
 		lines = append(lines, label+"  "+value)
 		if field != m.field {
@@ -358,7 +358,7 @@ func (m *humanModel) settingsView(width int) string {
 			}
 			text := prefix + choice.label
 			if i == m.choice {
-				text = tuiAccent.Render(text)
+				text = m.styles.accent.Render(text)
 			}
 			lines = append(lines, text)
 		}

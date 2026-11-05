@@ -254,7 +254,7 @@ func TestHumanPTY(t *testing.T) {
 						if scenario == "language-switch" {
 							choice, lang, pagePrompt = 1, english, "Please change the page."
 						}
-						master.Write([]byte("\x1b[A\x1b[A" + strings.Repeat("\x1b[B", choice) + "\r\x1b[B\r"))
+						master.Write([]byte("\x1b[A\x1b[A" + strings.Repeat("\x1b[B", choice) + "\r" + strings.Repeat("\x1b[B", settingApply-settingLanguage) + "\r"))
 						stage, raw = 12, ""
 					} else if stage == 12 && strings.Contains(text, lang.text("Enter 开始扫描 · ")) {
 						data, err := os.ReadFile(filepath.Join(dir, ".config", "goscanner", "config.json"))
@@ -316,7 +316,7 @@ func TestHumanPTY(t *testing.T) {
 				assertNoChinese(t, strings.ReplaceAll(ansi.Strip(transcript.String()), "简体中文", ""))
 			}
 			if hasTerminalColor(transcript.String()) != (scenario == "color") {
-				t.Fatalf("terminal colors do not respect NO_COLOR: scenario=%s", scenario)
+				t.Fatalf("unexpected theme color behavior: scenario=%s", scenario)
 			}
 			if scenario == "saved-device" && !strings.Contains(transcript.String(), "\x1b[1mHP Laser MFP 1188w") {
 				t.Fatal("saved model was not bold in actual terminal output")

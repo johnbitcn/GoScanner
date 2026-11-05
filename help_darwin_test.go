@@ -22,7 +22,7 @@ func TestHelpPTY(t *testing.T) {
 		width                int
 		term, noColor, force string
 		agent                bool
-		colored              bool
+		styled               bool
 		language             language
 	}{
 		{"wide-color", 140, "xterm-256color", "", "0", false, true, chinese},
@@ -73,10 +73,10 @@ func TestHelpPTY(t *testing.T) {
 				t.Fatal("help changed terminal mode", modeErr)
 			}
 			raw := strings.ReplaceAll(output.String(), "\r", "")
-			if hasTerminalColor(raw) != tc.colored {
-				t.Fatalf("wrong terminal colors: %q", raw)
+			if hasTerminalColor(raw) {
+				t.Fatalf("help overrides terminal colors: %q", raw)
 			}
-			if !tc.colored && strings.ContainsRune(raw, '\x1b') {
+			if !tc.styled && strings.ContainsRune(raw, '\x1b') {
 				t.Fatal("plain help contains terminal escapes")
 			}
 			for _, escape := range []string{"\x1b[2J", "\x1b[?1049h", "\x1b[?25l"} {
@@ -94,10 +94,8 @@ func TestHelpPTY(t *testing.T) {
 			if ansi.Strip(raw) != renderHelp("scan", min(tc.width, 88), false, tc.language) {
 				t.Fatal("actual terminal layout differs from rendered help", raw)
 			}
-			// Defaults can wrap across lines; assert their style without fixing one numeric value.
-			mutedPrefix := strings.Split(tuiMuted.Render("x"), "x")[0]
-			if tc.colored && (!strings.Contains(raw, "\x1b[1m--port PORT") || !strings.Contains(raw, mutedPrefix)) {
-				t.Fatal("option styling missing in actual terminal")
+			if tc.styled && (!strings.Contains(raw, tuiEmphasis.Render("GoScanner")) || !strings.Contains(raw, tuiEmphasis.Render("--port PORT"))) {
+				t.Fatal("heading or option emphasis missing in actual terminal")
 			}
 		})
 	}

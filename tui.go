@@ -18,16 +18,8 @@ import (
 	"github.com/charmbracelet/x/term"
 )
 
-var (
-	tuiAccent   = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
-	tuiSuccess  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	tuiWarning  = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	tuiError    = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
-	tuiPath     = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
-	tuiProtocol = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
-	tuiMuted    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	tuiModel    = lipgloss.NewStyle().Bold(true)
-)
+// Help uses attributes without starting an interactive color query.
+var tuiEmphasis = lipgloss.NewStyle().Bold(true)
 
 func interactiveOutput(output io.Writer) bool {
 	file, ok := output.(*os.File)
@@ -60,50 +52,54 @@ type nextPageMsg struct{ reply chan bool }
 type cancelMsg struct{}
 
 type humanModel struct {
-	ctx                   context.Context
-	cancel                context.CancelFunc
-	tasks                 *sync.WaitGroup
-	request               commandRequest
-	lang                  language
-	find                  discoveryFunc
-	events                chan tea.Msg
-	stopped               chan struct{}
-	state, status, notice string
-	working               bool
-	checkedAt             time.Time
-	capabilities          *info
-	devices               []scannerDevice
-	drives                []savedDevice
-	drivesError           error
-	deviceCursor          int
-	deviceInputs          [1]textinput.Model
-	deviceField           int
-	autoDiscover          bool
-	discovering           bool
-	discoveryCancel       context.CancelFunc
-	discoveryGeneration   int
-	validatingEndpoint    string
-	width, height         int
-	page                  int
-	latest                string
-	warnings              []diagnostic
-	reply                 chan bool
-	result                commandResult
-	lastResult            commandDoneMsg // Read only after tasks.Wait on an abnormal UI exit.
-	code                  int
-	input                 textinput.Model
-	editing               bool
-	choices               []settingChoice
-	choice, field         int
-	draft                 commandRequest
-	draftLanguage         string
-	viewport              viewport.Model
+	ctx                             context.Context
+	cancel                          context.CancelFunc
+	tasks                           *sync.WaitGroup
+	request                         commandRequest
+	lang                            language
+	styles                          tuiStyles
+	backgroundKnown, backgroundDark bool
+	restoreThemeNotifications       bool
+	find                            discoveryFunc
+	events                          chan tea.Msg
+	stopped                         chan struct{}
+	state, status, notice           string
+	working                         bool
+	checkedAt                       time.Time
+	capabilities                    *info
+	devices                         []scannerDevice
+	drives                          []savedDevice
+	drivesError                     error
+	deviceCursor                    int
+	deviceInputs                    [1]textinput.Model
+	deviceField                     int
+	autoDiscover                    bool
+	discovering                     bool
+	discoveryCancel                 context.CancelFunc
+	discoveryGeneration             int
+	validatingEndpoint              string
+	width, height                   int
+	page                            int
+	latest                          string
+	warnings                        []diagnostic
+	reply                           chan bool
+	result                          commandResult
+	lastResult                      commandDoneMsg // Read only after tasks.Wait on an abnormal UI exit.
+	code                            int
+	input                           textinput.Model
+	editing                         bool
+	choices                         []settingChoice
+	choice, field                   int
+	draft                           commandRequest
+	draftLanguage                   string
+	viewport                        viewport.Model
 }
 
 func newHumanModel(ctx context.Context, cancel context.CancelFunc, request commandRequest, find discoveryFunc) *humanModel {
 	m := &humanModel{ctx: ctx, cancel: cancel, tasks: &sync.WaitGroup{}, request: request, find: find, lang: request.language,
 		events: make(chan tea.Msg, 16), stopped: make(chan struct{}), state: "working", status: request.language.text("等待检查设备…"), width: 80, height: 24,
 		viewport: viewport.New()}
+	m.applyTheme()
 	m.reloadDrives()
 	return m
 }
@@ -205,7 +201,7 @@ func (m *humanModel) Init() tea.Cmd {
 	} else {
 		m.checkDevice()
 	}
-	return tea.Batch(focus, m.listen, func() tea.Msg { <-m.ctx.Done(); return cancelMsg{} })
+	return tea.Batch(focus, m.listen, m.queryTheme(), themeTick(), func() tea.Msg { <-m.ctx.Done(); return cancelMsg{} })
 }
 
 func (m *humanModel) finish(result commandResult, code int) {
@@ -215,6 +211,9 @@ func (m *humanModel) finish(result commandResult, code int) {
 }
 
 func (m *humanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if handled, cmd := m.updateTheme(msg); handled {
+		return m, cmd
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -395,25 +394,25 @@ func (m *humanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *humanModel) View() tea.View {
 	width := max(10, m.width-2)
-	lines := []string{tuiAccent.Render("GoScanner"), ""}
+	lines := []string{m.styles.accent.Render("GoScanner"), ""}
 	footer := m.lang.text("Ctrl+C 取消")
 	switch m.state {
 	case "ready", "unavailable":
 		checkbox := func(enabled bool, label string) string {
 			if enabled {
-				return tuiSuccess.Render("[x] " + label)
+				return m.styles.success.Render("[x] " + label)
 			}
-			return tuiMuted.Render("[ ] " + label)
+			return m.styles.muted.Render("[ ] " + label)
 		}
-		status := tuiSuccess.Render(m.status)
+		status := m.styles.success.Render(m.status)
 		if m.state == "unavailable" {
-			status = tuiWarning.Render(m.status)
+			status = m.styles.warning.Render(m.status)
 		}
 		lines = append(lines, m.lang.text("设备  ")+m.deviceLabel(m.request.endpoint, width-ansi.StringWidth(m.lang.text("设备  "))),
 			fmt.Sprintf(m.lang.text("设置  %s · %s · %d DPI"), terminalText(m.request.area), terminalText(m.request.opts.Mode), m.request.opts.DPI),
 			fmt.Sprintf(m.lang.text("选项  %s · %s · %s · %s"), checkbox(m.request.manual, m.lang.text("连续")), checkbox(m.request.singlePage, m.lang.text("独立 PDF")), checkbox(m.request.opts.Deskew, m.lang.text("纠偏")), checkbox(m.request.opts.Autocrop, m.lang.text("裁切"))),
-			m.lang.text("输出  ")+tuiPath.Render(terminalText(m.request.output)), "", m.lang.text("状态  ")+status,
-			tuiMuted.Render(fmt.Sprintf(m.lang.text("检查  %s（按 r 更新）"), m.checkedAt.Format("15:04:05"))))
+			m.lang.text("输出  ")+m.styles.value.Render(terminalText(m.request.output)), "", m.lang.text("状态  ")+status,
+			m.styles.muted.Render(fmt.Sprintf(m.lang.text("检查  %s（按 r 更新）"), m.checkedAt.Format("15:04:05"))))
 		footer = m.lang.text("r 重新检查 · d 更换设备 · s 设置 · q 退出")
 		if m.state == "ready" {
 			footer = m.lang.text("Enter 开始扫描 · ") + footer
@@ -440,9 +439,9 @@ func (m *humanModel) View() tea.View {
 			footer = m.lang.text("Enter 确认输入 · Esc 放弃本项")
 		}
 	case "working", "waiting":
-		status := tuiAccent.Render(m.status)
+		status := m.styles.accent.Render(m.status)
 		if m.state == "waiting" || m.ctx.Err() != nil {
-			status = tuiWarning.Render(m.status)
+			status = m.styles.warning.Render(m.status)
 		}
 		endpoint := m.request.endpoint
 		if m.validatingEndpoint != "" {
@@ -450,7 +449,7 @@ func (m *humanModel) View() tea.View {
 		}
 		lines = append(lines, m.lang.text("设备  ")+m.deviceLabel(endpoint, width-ansi.StringWidth(m.lang.text("设备  "))), m.lang.text("状态  ")+status)
 		if m.latest != "" {
-			lines = append(lines, m.lang.text("文件  ")+tuiPath.Render(terminalText(m.latest)))
+			lines = append(lines, m.lang.text("文件  ")+m.styles.value.Render(terminalText(m.latest)))
 		}
 		if m.state == "waiting" {
 			footer = m.lang.text("Enter 扫描下一页 · Esc 结束并保存 · Ctrl+C 取消")
@@ -459,7 +458,7 @@ func (m *humanModel) View() tea.View {
 		m.viewport.SetWidth(width)
 		m.viewport.SetHeight(max(1, m.height-5))
 		m.viewport.FillHeight, m.viewport.SoftWrap = false, true
-		m.viewport.SetContent(resultText(m.result, true, m.lang))
+		m.viewport.SetContent(resultText(m.result, true, m.lang, m.styles))
 		lines = append(lines, m.viewport.View())
 		footer = m.lang.text("↑/↓ 滚动 · Enter / q 退出")
 		if m.result.Error != nil && m.result.Error.Code == "device_record_not_found" {
@@ -467,41 +466,43 @@ func (m *humanModel) View() tea.View {
 		}
 	}
 	if m.notice != "" {
-		lines = append(lines, tuiWarning.Render(m.lang.text("提示  ")+terminalText(m.notice)))
+		lines = append(lines, m.styles.warning.Render(m.lang.text("提示  ")+terminalText(m.notice)))
 	}
-	lines = append(lines, "", tuiMuted.Render(footer))
-	return tea.NewView(lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n")))
+	lines = append(lines, "", m.styles.muted.Render(footer))
+	view := tea.NewView(m.styles.text.Width(width).Render(strings.Join(lines, "\n")))
+	view.ReportFocus = m.autoTheme()
+	return view
 }
 
-func resultText(result commandResult, colored bool, lang language) string {
+func resultText(result commandResult, styled bool, lang language, styles tuiStyles) string {
 	paint := func(style lipgloss.Style, text string) string {
-		if colored {
+		if styled {
 			return style.Render(text)
 		}
 		return text
 	}
-	lines := []string{paint(tuiSuccess, lang.text("状态  完成"))}
+	lines := []string{paint(styles.success, lang.text("状态  完成"))}
 	if result.Error != nil {
-		lines[0] = paint(tuiError, lang.text("状态  失败"))
+		lines[0] = paint(styles.failure, lang.text("状态  失败"))
 		if result.Status == "partial" {
-			lines[0] = paint(tuiWarning, lang.text("状态  部分完成；已保留文件"))
+			lines[0] = paint(styles.warning, lang.text("状态  部分完成；已保留文件"))
 		}
-		lines = append(lines, paint(tuiError, terminalText(lang.commandError(result.Error))))
+		lines = append(lines, paint(styles.failure, terminalText(lang.commandError(result.Error))))
 	}
 	if result.Pages > 0 {
-		lines = append(lines, paint(tuiSuccess, fmt.Sprintf(lang.text("已保存 %d 页"), result.Pages)))
+		lines = append(lines, paint(styles.success, fmt.Sprintf(lang.text("已保存 %d 页"), result.Pages)))
 	}
 	for _, path := range result.Files {
-		lines = append(lines, lang.text("文件  ")+paint(tuiPath, terminalText(path)))
+		lines = append(lines, lang.text("文件  ")+paint(styles.value, terminalText(path)))
 	}
 	for _, path := range result.Originals {
-		lines = append(lines, lang.text("原图  ")+paint(tuiPath, terminalText(path)))
+		lines = append(lines, lang.text("原图  ")+paint(styles.value, terminalText(path)))
 	}
 	for _, path := range result.Retained {
-		lines = append(lines, paint(tuiWarning, lang.text("暂存  ")+terminalText(path)))
+		lines = append(lines, paint(styles.warning, lang.text("暂存  ")+terminalText(path)))
 	}
 	for _, warning := range result.Warnings {
-		lines = append(lines, paint(tuiWarning, lang.text("警告  ")+terminalText(lang.error(warning))))
+		lines = append(lines, paint(styles.warning, lang.text("警告  ")+terminalText(lang.error(warning))))
 	}
 	for _, page := range result.Processing {
 		angle := lang.text("不可用")
@@ -519,9 +520,9 @@ func resultText(result commandResult, colored bool, lang language) string {
 		}
 	}
 	if cap := result.Info; cap != nil {
-		stateStyle := tuiSuccess
+		stateStyle := styles.success
 		if cap.State != "Idle" {
-			stateStyle = tuiWarning
+			stateStyle = styles.warning
 		}
 		lines = append(lines, lang.text("设备状态  ")+paint(stateStyle, terminalText(cap.State)),
 			fmt.Sprintf(lang.text("水平 DPI  %v"), cap.WidthsDPI), fmt.Sprintf(lang.text("垂直 DPI  %v"), cap.HeightsDPI),
@@ -535,13 +536,18 @@ func runTUI(parent context.Context, request commandRequest, stdout, stderr io.Wr
 	ctx, cancel := context.WithCancel(parent)
 	model := newHumanModel(ctx, cancel, request, find)
 	_, err := tea.NewProgram(model, tea.WithInput(os.Stdin), tea.WithOutput(stdout), tea.WithoutSignalHandler()).Run()
+	if model.restoreThemeNotifications {
+		if _, restoreErr := io.WriteString(stdout, ansi.ResetModeLightDark); err == nil {
+			err = restoreErr
+		}
+	}
 	close(model.stopped)
 	cancel()
 	model.tasks.Wait()
 	if err != nil {
 		fmt.Fprintln(stderr, model.lang.error(diagnosticf("Terminal interface failed. Task cleanup has finished. Do not immediately repeat the scan: %w", "终端界面失败；已等待任务清理，勿立即重试扫描： %w", err)))
 		if !model.lastResult.discovery && model.lastResult.result.Status != "" {
-			fmt.Fprintln(stderr, resultText(model.lastResult.result, false, model.lang))
+			fmt.Fprintln(stderr, resultText(model.lastResult.result, false, model.lang, model.styles))
 		}
 		return exitCode(parent)
 	}

@@ -70,10 +70,7 @@ func (m *humanModel) editDeviceForm() tea.Cmd {
 	input.SetVirtualCursor(true)
 	input.SetValue(host)
 	input.Placeholder = m.lang.text("扫描仪 IP，例如 192.168.1.100")
-	styles := input.Styles()
-	styles.Focused.Prompt, styles.Focused.Placeholder = tuiAccent, tuiMuted
-	styles.Cursor.Color = lipgloss.Color("6")
-	input.SetStyles(styles)
+	input.SetStyles(m.styles.inputStyles())
 	m.deviceInputs[deviceHost] = input
 	m.viewport.GotoTop()
 	return m.focusDeviceField(deviceHost)
@@ -218,7 +215,7 @@ func (m *humanModel) toggleDeviceDiscovery() {
 }
 
 func (m *humanModel) devicesView(width int) string {
-	lines := []string{tuiAccent.Render(m.lang.text("添加设备（只需 IP；先发现并验证，再保存）"))}
+	lines := []string{m.styles.accent.Render(m.lang.text("添加设备（只需 IP；先发现并验证，再保存）"))}
 	focus := 0
 	for field, name := range []string{"IP", m.lang.text("发现并使用设备"), m.lang.text("自动发现")} {
 		prefix, label := "  ", name
@@ -227,9 +224,7 @@ func (m *humanModel) devicesView(width int) string {
 		}
 		label = prefix + lipgloss.NewStyle().Width(18).Render(label)
 		if field == m.deviceField {
-			label = tuiAccent.Render(label)
-		} else {
-			label = tuiMuted.Render(label)
+			label = m.styles.accent.Render(label)
 		}
 		value := ""
 		if field < len(m.deviceInputs) {
@@ -237,9 +232,9 @@ func (m *humanModel) devicesView(width int) string {
 			value = m.deviceInputs[field].View()
 		}
 		if field == deviceAuto {
-			value = tuiMuted.Render(m.lang.text("[ ] 关闭"))
+			value = m.styles.muted.Render(m.lang.text("[ ] 关闭"))
 			if m.autoDiscover {
-				value = tuiSuccess.Render(m.lang.text("[x] 开启"))
+				value = m.styles.success.Render(m.lang.text("[x] 开启"))
 			}
 		}
 		lines = append(lines, label+"  "+value)
@@ -251,7 +246,7 @@ func (m *humanModel) devicesView(width int) string {
 		} else if len(m.devices) == 0 {
 			status = m.lang.text("未取得可用设备，可输入 IP 或按 r 重试")
 		}
-		lines = append(lines, tuiAccent.Render(ansi.Truncate(status, width, "…")))
+		lines = append(lines, m.styles.accent.Render(ansi.Truncate(status, width, "…")))
 		for i, d := range m.devices {
 			prefix := "  "
 			if m.deviceField == deviceFirstResult+i {

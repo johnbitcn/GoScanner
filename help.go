@@ -22,7 +22,7 @@ type helpSection struct {
 	items []helpItem
 }
 
-func helpDisplay(out io.Writer) (width int, colored bool) {
+func helpDisplay(out io.Writer) (width int, styled bool) {
 	width = 80
 	file, ok := out.(*os.File)
 	if !ok || !term.IsTerminal(file.Fd()) {
@@ -31,28 +31,21 @@ func helpDisplay(out io.Writer) (width int, colored bool) {
 	if columns, _, err := term.GetSize(file.Fd()); err == nil && columns > 0 {
 		width = min(columns, 88)
 	}
-	colored = os.Getenv("NO_COLOR") == "" && os.Getenv("TERM") != "dumb" && colorprofile.Detect(out, os.Environ()) >= colorprofile.ANSI
-	return width, colored
+	styled = os.Getenv("NO_COLOR") == "" && os.Getenv("TERM") != "dumb" && colorprofile.Detect(out, os.Environ()) >= colorprofile.ANSI
+	return width, styled
 }
 
-type helpLine struct {
-	text  string
-	start int
-}
-
-// Preserve source offsets so inline defaults can be styled after Unicode wrapping.
-func wrapHelp(text string, width int) []helpLine {
-	var lines []helpLine
-	line, start := "", 0
+func wrapHelp(text string, width int) []string {
+	var lines []string
+	line := ""
 	flush := func() {
 		if trimmed := strings.TrimRight(line, " "); trimmed != "" {
-			lines = append(lines, helpLine{trimmed, start})
+			lines = append(lines, trimmed)
 		}
 		line = ""
 	}
 	rest, state := text, -1
 	for rest != "" {
-		offset := len(text) - len(rest)
 		segment, next, mustBreak, nextState := uniseg.FirstLineSegmentInString(rest, state)
 		rest, state = next, nextState
 		segment = strings.TrimRight(segment, "\r\n")
@@ -60,17 +53,14 @@ func wrapHelp(text string, width int) []helpLine {
 			flush()
 		}
 		if line == "" {
-			trimmed := strings.TrimLeft(segment, " ")
-			offset += len(segment) - len(trimmed)
-			segment, start = trimmed, offset
+			segment = strings.TrimLeft(segment, " ")
 		}
 		if ansi.StringWidth(strings.TrimRight(segment, " ")) > width {
 			for i, part := range strings.Split(ansi.Hardwrap(segment, width, true), "\n") {
 				if i > 0 {
 					flush()
 				}
-				line, start = part, offset
-				offset += len(part)
+				line = part
 			}
 		} else {
 			line += segment
@@ -83,9 +73,9 @@ func wrapHelp(text string, width int) []helpLine {
 	return lines
 }
 
-func renderHelp(command string, width int, colored bool, lang language) string {
+func renderHelp(command string, width int, styled bool, lang language) string {
 	summary, sections := helpContent(command, lang)
-	return renderHelpContent(command, width, colored, lang, summary, sections)
+	return renderHelpContent(command, width, styled, lang, summary, sections)
 }
 
 func renderAgentHelp(command string) string {
@@ -93,13 +83,13 @@ func renderAgentHelp(command string) string {
 	return renderHelpContent(command, 80, false, english, summary, sections)
 }
 
-func renderHelpContent(command string, width int, colored bool, lang language, summary string, sections []helpSection) string {
+func renderHelpContent(command string, width int, styled bool, lang language, summary string, sections []helpSection) string {
 	if width <= 0 {
 		width = 80
 	}
 	width = max(8, min(width, 88))
 	paint := func(text string, style lipgloss.Style) string {
-		if colored {
+		if styled {
 			return style.Render(text)
 		}
 		return text
@@ -108,31 +98,22 @@ func renderHelpContent(command string, width int, colored bool, lang language, s
 	plain, bold := lipgloss.NewStyle(), lipgloss.NewStyle().Bold(true)
 	write := func(text string, indent int, style lipgloss.Style) {
 		for _, line := range wrapHelp(text, max(1, width-indent)) {
-			out.WriteString(strings.Repeat(" ", indent) + paint(line.text, style) + "\n")
+			out.WriteString(strings.Repeat(" ", indent) + paint(line, style) + "\n")
 		}
 	}
-	write("GoScanner", 0, tuiAccent)
+	write("GoScanner", 0, bold)
 	write(lang.text(summary), 0, plain)
 	for _, section := range sections {
 		out.WriteByte('\n')
-		write(lang.text(section.title), 0, tuiAccent)
+		write(lang.text(section.title), 0, bold)
 		for i, item := range section.items {
 			if item.label == "" {
 				write(lang.text(item.text), 2, plain)
 				continue
 			}
-			description := lang.text(item.text)
-			text := description
+			text := lang.text(item.text)
 			if item.defaultValue != "" {
 				text += fmt.Sprintf(lang.text(" 默认：%s。"), lang.text(item.defaultValue))
-			}
-			defaultStart := len(description) + 1
-			body := func(line helpLine) string {
-				if item.defaultValue == "" || defaultStart >= line.start+len(line.text) {
-					return line.text
-				}
-				index := max(0, defaultStart-line.start)
-				return line.text[:index] + paint(line.text[index:], tuiMuted)
 			}
 			label := paint(item.label, bold)
 			column := 24
@@ -143,7 +124,7 @@ func renderHelpContent(command string, width int, colored bool, lang language, s
 			if width < 72 || ansi.StringWidth(item.label)+4 > column {
 				write(item.label, 2, bold)
 				for _, line := range wrapHelp(text, width-4) {
-					out.WriteString("    " + body(line) + "\n")
+					out.WriteString("    " + line + "\n")
 				}
 				multiline = true
 			} else {
@@ -154,7 +135,7 @@ func renderHelpContent(command string, width int, colored bool, lang language, s
 					} else {
 						out.WriteString(strings.Repeat(" ", column))
 					}
-					out.WriteString(body(line) + "\n")
+					out.WriteString(line + "\n")
 				}
 				multiline = len(lines) > 1
 			}
@@ -169,7 +150,7 @@ func renderHelpContent(command string, width int, colored bool, lang language, s
 func helpContent(command string, lang language) (string, []helpSection) {
 	if command == "" {
 		return "macOS 局域网 eSCL / WSD 扫描工具", []helpSection{
-			{"用法", []helpItem{{text: "goscanner"}, {text: "goscanner [--agent] [--lang LANG] <命令> [参数]"}}},
+			{"用法", []helpItem{{text: "goscanner"}, {text: "goscanner [--agent] [--lang LANG] [--theme MODE] <命令> [参数]"}}},
 			{"命令", []helpItem{
 				{"scan", "扫描文档；默认打开交互界面", ""},
 				{"info", "查看设备能力与状态，不扫描", ""},
@@ -179,6 +160,7 @@ func helpContent(command string, lang language) (string, []helpSection) {
 			{"全局选项", []helpItem{
 				{"--agent", "无交互模式，输出 JSON；必须放在命令前", ""},
 				{"--lang LANG", "人类界面语言：auto、en 或 zh-CN；覆盖配置 language；auto 直接检测系统语言。Agent 输出始终使用英文。", "配置或系统语言"},
+				{"--theme MODE", "界面主题：auto、light 或 dark；启动参数优先于配置 theme；自动检测失败时使用深色主题。", "auto"},
 				{"-h, --help", "显示帮助", ""},
 			}},
 			{"配置", []helpItem{{text: "~/.config/goscanner/config.json"}}},
@@ -235,6 +217,7 @@ func helpContent(command string, lang language) (string, []helpSection) {
 	}
 	sections = append(sections, helpSection{"帮助", []helpItem{
 		{"--lang LANG", "人类界面语言：auto、en 或 zh-CN；覆盖配置 language；auto 直接检测系统语言。Agent 输出始终使用英文。", "配置或系统语言"},
+		{"--theme MODE", "界面主题：auto、light 或 dark；启动参数优先于配置 theme；自动检测失败时使用深色主题。", "auto"},
 		{"-h, --help", "显示当前命令的帮助", ""},
 	}})
 	switch command {

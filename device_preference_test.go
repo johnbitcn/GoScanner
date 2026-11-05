@@ -203,7 +203,7 @@ func TestPreferenceListToggleAndOrangeCurrentProtocol(t *testing.T) {
 	}
 	m.editDevice()
 	view := m.View().Content
-	if !strings.Contains(view, tuiProtocol.Render("eSCL")) || strings.Contains(ansi.Strip(view), "eSCL + WSD") {
+	if !strings.Contains(view, "eSCL") || strings.Contains(ansi.Strip(view), "eSCL + WSD") {
 		t.Fatal("list must show orange selected protocol, not supported protocols", view)
 	}
 	press(m, 'p')
@@ -212,7 +212,7 @@ func TestPreferenceListToggleAndOrangeCurrentProtocol(t *testing.T) {
 		t.Fatalf("%+v %v request=%+v", devices, err, m.request)
 	}
 	view = m.View().Content
-	if !strings.Contains(view, tuiProtocol.Render("WSD")) || !strings.Contains(ansi.Strip(view), "Example MFP") {
+	if !strings.Contains(view, "WSD") || !strings.Contains(ansi.Strip(view), "Example MFP") {
 		t.Fatal("preferred protocol label did not update", view)
 	}
 	m.editDevice()

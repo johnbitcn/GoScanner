@@ -313,7 +313,7 @@ func TestHumanDiscoveryJSONDoesNotTranslateDeviceData(t *testing.T) {
 		if err := json.Unmarshal(out.Bytes(), &devices); err != nil || len(devices) != 1 || devices[0].Name != "彩色" || devices[0].Model != "开启" || devices[0].Protocol != "wsd" {
 			t.Fatalf("language=%s output=%q err=%v", lang, out.String(), err)
 		}
-		text := resultText(commandResult{Devices: &devices}, false, lang)
+		text := resultText(commandResult{Devices: &devices}, false, lang, newTUIStyles(true))
 		if !strings.Contains(text, "彩色 · 开启 · http://192.0.2.8/wsd/scan") {
 			t.Fatal("TUI translated external data as catalog keys", text)
 		}
@@ -325,8 +325,8 @@ func TestHumanHelpTranslationsAndLayout(t *testing.T) {
 		for _, command := range []string{"", "scan", "info", "discover"} {
 			for _, width := range []int{24, 40, 72, 80, 140} {
 				plain := renderHelp(command, width, false, lang)
-				colored := renderHelp(command, width, true, lang)
-				if ansi.Strip(colored) != plain {
+				styled := renderHelp(command, width, true, lang)
+				if hasTerminalColor(styled) || ansi.Strip(styled) != plain {
 					t.Fatalf("style changed %s %s help", lang, command)
 				}
 				for _, line := range strings.Split(plain, "\n") {
@@ -356,7 +356,7 @@ func TestHumanDiagnosticsAndRawData(t *testing.T) {
 		if lang == english {
 			want, warningText = "Cannot save", "Processing skipped."
 		}
-		text := resultText(result, false, lang)
+		text := resultText(result, false, lang, newTUIStyles(true))
 		if !strings.Contains(stderr.String(), want) || !strings.Contains(text, path) || !strings.Contains(text, warningText) {
 			t.Fatalf("language=%s text=%q stderr=%q", lang, text, stderr.String())
 		}
@@ -417,7 +417,7 @@ func TestHumanCatalogCoversSourceTemplates(t *testing.T) {
 		}
 		assertNoChinese(t, translated)
 	}
-	paths := []string{"tui.go", "tui_devices.go", "tui_device_list.go", "tui_settings.go", "pages.go", "device_selection.go", "keyboard.go", "help.go", "i18n.go", "command.go"}
+	paths := []string{"theme.go", "tui.go", "tui_devices.go", "tui_device_list.go", "tui_settings.go", "pages.go", "device_selection.go", "keyboard.go", "help.go", "i18n.go", "command.go"}
 	for _, path := range paths {
 		file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 		if err != nil {

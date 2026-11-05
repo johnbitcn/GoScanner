@@ -19,13 +19,13 @@ func TestHumanDeviceModelAndIPPresentation(t *testing.T) {
 	m.reloadDrives()
 	device, _ := deviceFromEndpoint(m.request.endpoint)
 	view := m.View().Content
-	if !strings.Contains(view, tuiModel.Render(model)) || !strings.Contains(view, tuiPath.Render(device.Host)) {
-		t.Fatal("home page must show bold model and colored IP", view)
+	if !strings.Contains(view, m.styles.text.Bold(true).Render(model)) || !strings.Contains(view, device.Host) {
+		t.Fatal("home page must show bold model and IP in terminal default colors", view)
 	}
 	press(m, 'd')
 	view = m.View().Content
 	plain := ansi.Strip(view)
-	if m.state != "device-list" || !strings.Contains(view, tuiModel.Render(model)) || !strings.Contains(view, tuiPath.Render(device.Host)) || strings.Index(plain, model) > strings.Index(plain, "手动添加") || strings.Contains(plain, "端口") {
+	if m.state != "device-list" || !strings.Contains(view, m.styles.text.Bold(true).Render(model)) || !strings.Contains(view, device.Host) || strings.Index(plain, model) > strings.Index(plain, "手动添加") || strings.Contains(plain, "端口") {
 		t.Fatal("saved devices must precede manual inputs", plain)
 	}
 	m.deviceCursor = len(m.drives)
@@ -49,7 +49,7 @@ func TestHumanDeviceLabelKeepsIPInNarrowTerminal(t *testing.T) {
 	endpoint := "http://192.168.100.100:8018/wsd/scan"
 	m.drives = []savedDevice{{scannerDevice: scannerDevice{Endpoint: endpoint, Model: "A very long scanner model name"}}}
 	label := m.deviceLabel(endpoint, 24)
-	if ansi.StringWidth(label) > 24 || !strings.Contains(label, tuiPath.Render("192.168.100.100")) || !strings.Contains(label, "…") {
+	if ansi.StringWidth(label) > 24 || !strings.Contains(label, "192.168.100.100") || !strings.Contains(label, "…") {
 		t.Fatal("truncate model, not IP", label)
 	}
 }

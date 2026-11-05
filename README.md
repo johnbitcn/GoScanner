@@ -45,7 +45,7 @@ goscanner discover --help
 
 Top-level help shows navigation and common examples. Subcommand help groups options by purpose. Descriptions wrap and align to the terminal width; narrow terminals place descriptions below options. Human help reads only the language setting from configuration. It does not query devices, clear the screen, or use a pager, and it remains available when configuration is damaged.
 
-In an interactive terminal, normal commands use an inline TUI, not a full-screen interface. If standard input or output is not a terminal, or `TERM=dumb`, the program uses plain-text mode. **Redirecting output does not automatically enable Agent mode.** Set `NO_COLOR=1` to disable colors.
+In an interactive terminal, normal commands use an inline TUI, not a full-screen interface. If standard input or output is not a terminal, or `TERM=dumb`, the program uses plain-text mode. **Redirecting output does not automatically enable Agent mode.** The TUI provides foreground palettes for dark and light backgrounds without setting a background color. Priority is `--theme` > configuration `theme` > terminal background detection > dark fallback. Detection never blocks startup or prompts for a choice. Automatic mode follows terminal changes when possible and polls once per second after a successful detection. `NO_COLOR=1` disables TUI colors and help styling; the TUI retains the control sequences needed for interaction.
 
 ### Interface language
 
@@ -71,7 +71,7 @@ With no arguments, the program opens the scan interface in an interactive termin
 goscanner
 ```
 
-The device bar and device list show a **bold model**, a blue IP address, and the current protocol in orange. Normal use does not require protocol selection. Without discovery metadata, the model is shown as unknown; later discovery fills it in. A saved device is not necessarily ready. It is validated again when selected.
+The device bar and device list show a **bold model**, an IP address, and the current protocol. IP addresses and protocols use the current theme’s information color. Normal use does not require protocol selection. Without discovery metadata, the model is shown as unknown; later discovery fills it in. A saved device is not necessarily ready. It is validated again when selected.
 
 | Key | Action |
 | --- | --- |
@@ -83,7 +83,7 @@ The device bar and device list show a **bold model**, a blue IP address, and the
 | Esc | Go back, end page changes, or exit, as indicated by the current screen |
 | Ctrl+C | Cancel the current operation and wait for cleanup |
 
-The settings page lists all options. Use ↑/↓ to select an item, Enter to open its choices, and Space to toggle a switch. Resolution, color, and format choices come from device capabilities. Only the output path and custom scan area require text input. “Interface language” offers automatic detection, `English`, or `简体中文`. Language names use their native form. Select “Save and apply” to save all visible settings, return to the scan page, and recheck the device. This does not start a scan. Esc discards changes without writing configuration. Only the output directory and format are saved; the next run generates a new filename. A command-line `--lang` still overrides the saved preference. Without that option, confirming a language change switches the interface immediately.
+The settings page lists all options. Use ↑/↓ to select an item, Enter to open its choices, and Space to toggle a switch. Resolution, color, and format choices come from device capabilities. Only the output path and custom scan area require text input. “Interface language” offers automatic detection, `English`, or `简体中文`. Language names use their native form. “Interface theme” offers automatic detection, light background, or dark background. An explicit `--theme` overrides the saved preference. Select “Save and apply” to save all visible settings, return to the scan page, and recheck the device. This does not start a scan. Esc discards changes without writing configuration. Only the output directory and format are saved; the next run generates a new filename. A command-line `--lang` still overrides the saved preference. Without that option, confirming a language change switches the interface immediately.
 
 ### `discover`: find devices
 
@@ -140,6 +140,7 @@ goscanner scan --single-page -o 分页.pdf
 | Option | Description and built-in default |
 | --- | --- |
 | `--dpi DPI` | Resolution; default: `150`. Must be supported by the device |
+| `--theme MODE` | TUI theme: `auto`, `light`, or `dark`; auto falls back to dark; accepted before or after the command |
 | `--mode MODE` | `color` or `gray`; default: `color` |
 | `--area AREA` | `a4`, `full`, or `x,y,width,height`; default: `a4`. Custom coordinates are in millimeters, measured from the flatbed's upper-left corner |
 | `-o FILE` | Output path; supports `.jpg`, `.jpeg`, `.tif`, `.tiff`, `.png`, and `.pdf` |

@@ -15,11 +15,11 @@ import (
 func TestHelpContentAndLayout(t *testing.T) {
 	for _, command := range []string{"", "scan", "info", "discover"} {
 		for _, width := range []int{24, 40, 60, 71, 72, 80, 88, 140} {
-			plain, colored := renderHelp(command, width, false, chinese), renderHelp(command, width, true, chinese)
-			if strings.ContainsRune(plain, '\x1b') || ansi.Strip(colored) != plain || !hasTerminalColor(colored) {
+			plain, styled := renderHelp(command, width, false, chinese), renderHelp(command, width, true, chinese)
+			if strings.ContainsRune(plain, '\x1b') || ansi.Strip(styled) != plain || hasTerminalColor(styled) || !strings.Contains(styled, tuiEmphasis.Render("GoScanner")) {
 				t.Fatalf("style changed content: %s/%d", command, width)
 			}
-			for _, line := range strings.Split(colored, "\n") {
+			for _, line := range strings.Split(styled, "\n") {
 				if ansi.StringWidth(line) > min(width, 88) || strings.TrimRight(line, " ") != line || !utf8.ValidString(line) {
 					t.Fatalf("invalid line %s/%d: %q", command, width, line)
 				}
@@ -30,7 +30,7 @@ func TestHelpContentAndLayout(t *testing.T) {
 		}
 	}
 	root := renderHelp("", 80, false, chinese)
-	if strings.Contains(root, "--dpi") || strings.Contains(root, "--single-page") || !strings.Contains(root, "goscanner <命令> --help") || len(strings.Split(root, "\n")) > 30 {
+	if strings.Contains(root, "--dpi") || strings.Contains(root, "--single-page") || !strings.Contains(root, "goscanner <命令> --help") || len(strings.Split(root, "\n")) > 36 {
 		t.Fatal("root help should be a short navigation page", root)
 	}
 	want := map[string][]string{
@@ -86,7 +86,7 @@ func TestAgentHelpCoversHumanCommandOptions(t *testing.T) {
 	}
 }
 
-func TestHelpUnicodeWrappingOffsets(t *testing.T) {
+func TestHelpUnicodeWrapping(t *testing.T) {
 	for _, text := range []string{
 		"扫描仪 IP 地址，不接受主机名或 URL。未配置时可在交互界面选用或添加设备。",
 		"~/.config/goscanner/config.json",
@@ -96,10 +96,10 @@ func TestHelpUnicodeWrappingOffsets(t *testing.T) {
 		for _, width := range []int{8, 16, 20, 36, 56} {
 			var joined strings.Builder
 			for _, line := range wrapHelp(text, width) {
-				if line.text != text[line.start:line.start+len(line.text)] || ansi.StringWidth(line.text) > width {
-					t.Fatalf("invalid source offset or width: %d %+v", width, line)
+				if !utf8.ValidString(line) || ansi.StringWidth(line) > width {
+					t.Fatalf("invalid Unicode or width: %d %q", width, line)
 				}
-				joined.WriteString(line.text)
+				joined.WriteString(line)
 			}
 			compact := func(s string) string { return strings.NewReplacer(" ", "", "\n", "").Replace(s) }
 			if compact(joined.String()) != compact(text) {

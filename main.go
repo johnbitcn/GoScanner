@@ -24,6 +24,8 @@ type commandRequest struct {
 	recordID                                        string
 	language                                        language
 	languageExplicit                                bool
+	theme                                           string
+	themeExplicit                                   bool
 	device                                          *scannerDevice
 	registerDefault                                 bool
 	timeout                                         time.Duration
@@ -69,6 +71,14 @@ func parseRequest(args []string, manualDefault bool, lang language) (r commandRe
 	flags.Usage = func() {}
 	defaults := defaultConfig()
 	var languageErr error
+	var themeErr error
+	flags.Func("theme", "Interface theme: auto, light, or dark", func(value string) error {
+		if themeErr = validateTheme(value); themeErr != nil {
+			return themeErr
+		}
+		r.theme = value
+		return nil
+	})
 	flags.Func("lang", "Human interface language: auto, en, or zh-CN", func(value string) error {
 		selected, err := selectLanguage(value)
 		if err != nil {
@@ -107,6 +117,9 @@ func parseRequest(args []string, manualDefault bool, lang language) (r commandRe
 	parseErr := flags.Parse(args[1:])
 	if languageErr != nil {
 		return invalid(languageErr)
+	}
+	if themeErr != nil {
+		return invalid(themeErr)
 	}
 	if parseErr != nil {
 		if errors.Is(parseErr, flag.ErrHelp) {
@@ -155,6 +168,7 @@ func parseRequest(args []string, manualDefault bool, lang language) (r commandRe
 	}
 	r.protocol = protocolName(device.Protocol)
 	r.protocolExplicit = explicit["protocol"]
+	r.themeExplicit = explicit["theme"]
 	if cfg.Device.RecordID != "" && !explicit["host"] && !explicit["endpoint"] {
 		r.recordID = cfg.Device.RecordID
 		if explicit["port"] || explicit["path"] || explicit["scheme"] {
@@ -216,7 +230,11 @@ func runWithDiscovery(parent context.Context, args []string, stdout, stderr io.W
 	if !agent {
 		lang = configuredLanguage()
 	}
+	args, rootTheme, themeErr := leadingTheme(args)
 	args, lang, languageExplicit, languageErr := leadingLanguage(args, lang)
+	if languageErr == nil {
+		languageErr = themeErr
+	}
 	if languageErr != nil {
 		result := commandResult{Status: "ok"}
 		result.fail("invalid_arguments", languageErr)
@@ -233,6 +251,9 @@ func runWithDiscovery(parent context.Context, args []string, stdout, stderr io.W
 	}
 	r, help, failure, code := parseRequest(args, humanTUI, lang)
 	r.languageExplicit = r.languageExplicit || languageExplicit
+	if rootTheme != "" && !r.themeExplicit {
+		r.theme, r.themeExplicit = rootTheme, true
+	}
 	lang = r.language
 	if failure != nil {
 		result.Status, result.Error = "error", failure
@@ -241,8 +262,8 @@ func runWithDiscovery(parent context.Context, args []string, stdout, stderr io.W
 		if agent {
 			result.Help = renderAgentHelp(r.command)
 		} else {
-			width, colored := helpDisplay(stdout)
-			result.Help = renderHelp(r.command, width, colored, lang)
+			width, styled := helpDisplay(stdout)
+			result.Help = renderHelp(r.command, width, styled, lang)
 		}
 	} else if agent && r.manual {
 		result.fail("unsupported_interaction", diagnosticf("Agent mode does not support --manual. Run scan separately for each acquisition.", "Agent 模式不支持 --manual；请逐次执行 scan"))

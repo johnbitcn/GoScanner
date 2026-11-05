@@ -1,5 +1,6 @@
 {
   "language": "auto",
+  "theme": "auto",
   "device": {},
   "scan": {
     "dpi": 150,
