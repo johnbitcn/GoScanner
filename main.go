@@ -211,7 +211,11 @@ func runWithDiscovery(parent context.Context, args []string, stdout, stderr io.W
 	if agent {
 		args = args[1:]
 	}
-	args, lang, languageErr := leadingLanguage(args)
+	lang := automaticLanguage()
+	if !agent {
+		lang = configuredLanguage()
+	}
+	args, lang, languageErr := leadingLanguage(args, lang)
 	if languageErr != nil {
 		result := commandResult{Status: "ok"}
 		result.fail("invalid_arguments", languageErr)

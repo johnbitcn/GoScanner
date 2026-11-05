@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 )
@@ -47,9 +48,35 @@ func selectLanguage(value string) (language, error) {
 	}
 }
 
+// Only inspect language; invalid scan settings must not prevent help.
+func configuredLanguage() language {
+	fallback := automaticLanguage()
+	path, err := configPath()
+	if err != nil {
+		return fallback
+	}
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return fallback
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fallback
+	}
+	var fields struct {
+		Language string `json:"language"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fallback
+	}
+	if selected, err := selectLanguage(fields.Language); err == nil {
+		return selected
+	}
+	return fallback
+}
+
 // Only consume leading global options; subcommand options use flag.FlagSet.
-func leadingLanguage(args []string) ([]string, language, error) {
-	lang := automaticLanguage()
+func leadingLanguage(args []string, lang language) ([]string, language, error) {
 	for len(args) > 0 {
 		value := ""
 		if args[0] == "--lang" {

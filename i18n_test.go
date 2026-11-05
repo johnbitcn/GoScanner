@@ -127,7 +127,109 @@ func TestHumanLanguageOptionsAndAgentIsolation(t *testing.T) {
 	}
 }
 
-func TestLanguageHelpDoesNotReadOrWriteUserData(t *testing.T) {
+func TestLanguageConfigurationPriority(t *testing.T) {
+	for _, tc := range []struct {
+		name, config, locale string
+		args                 []string
+		want                 language
+	}{
+		{"missing/en", "", "en_US", nil, english},
+		{"missing/zh", "", "zh_CN", nil, chinese},
+		{"omitted", `{}`, "zh_CN", nil, chinese},
+		{"configured/zh", `{"language":"zh-CN"}`, "en_US", nil, chinese},
+		{"configured/en", `{"language":"en"}`, "zh_CN", nil, english},
+		{"configured/auto", `{"language":"auto"}`, "zh_CN", nil, chinese},
+		{"unsupported-locale", `{"language":"auto"}`, "fr_FR", nil, english},
+		{"leading/en", `{"language":"zh-CN"}`, "zh_CN", []string{"--lang=en", "scan"}, english},
+		{"subcommand/zh", `{"language":"en"}`, "en_US", []string{"scan", "--lang", "zh-CN"}, chinese},
+		{"leading/auto", `{"language":"zh-CN"}`, "en_US", []string{"--lang=auto", "scan"}, english},
+		{"subcommand/auto", `{"language":"en"}`, "zh_CN", []string{"scan", "--lang", "auto"}, chinese},
+		{"last-option", `{"language":"zh-CN"}`, "zh_CN", []string{"--lang=zh-CN", "scan", "--lang=en"}, english},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			if tc.config != "" {
+				writeTestConfig(t, tc.config)
+			}
+			t.Setenv("LC_ALL", tc.locale)
+			args := tc.args
+			if args == nil {
+				args = []string{"scan"}
+			}
+			find := func(context.Context) ([]scannerDevice, []diagnostic, error) {
+				t.Fatal("language selection accessed scanners")
+				return nil, nil, nil
+			}
+			var out, stderr bytes.Buffer
+			helpArgs := append(slices.Clone(args), "--help")
+			if code := runWithDiscovery(context.Background(), helpArgs, &out, &stderr, find); code != 0 || stderr.Len() != 0 || !strings.Contains(out.String(), "\n"+tc.want.text("用法")+"\n") {
+				t.Fatalf("help code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+			}
+			out.Reset()
+			stderr.Reset()
+			invalidArgs := append(slices.Clone(args), "--dpi=0")
+			prefix := "--dpi must"
+			if tc.want == chinese {
+				prefix = "--dpi 必须"
+			}
+			if code := runWithDiscovery(context.Background(), invalidArgs, &out, &stderr, find); code != 2 || out.Len() != 0 || !strings.HasPrefix(stderr.String(), prefix) {
+				t.Fatalf("error code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+			}
+			result, code := agentRun(t, context.Background(), invalidArgs, find)
+			if code != 2 || result.Error == nil || !strings.HasPrefix(result.Error.Message, "--dpi must") {
+				t.Fatalf("configuration changed Agent language: code=%d result=%+v", code, result)
+			}
+			if tc.args == nil {
+				out.Reset()
+				stderr.Reset()
+				if code := runWithDiscovery(context.Background(), []string{"--help"}, &out, &stderr, find); code != 0 || stderr.Len() != 0 || !strings.Contains(out.String(), "\n"+tc.want.text("用法")+"\n") {
+					t.Fatalf("root help code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+				}
+			}
+		})
+	}
+}
+
+func TestLanguageHelpWithInvalidConfiguration(t *testing.T) {
+	t.Setenv("LC_ALL", "en_US")
+	for _, tc := range []struct {
+		data string
+		want language
+	}{
+		{"broken config", english},
+		{`null`, english},
+		{`{"language":"fr"}`, english},
+		{`{"language":123}`, english},
+		{`{"language":"zh-CN","scan":{"dpi":"bad"}}`, chinese},
+		{`{"language":"zh-CN","unknown":true}`, chinese},
+	} {
+		t.Run(tc.data, func(t *testing.T) {
+			writeTestConfig(t, tc.data)
+			var out, stderr bytes.Buffer
+			if code := run(context.Background(), []string{"scan", "--help"}, &out, &stderr); code != 0 || stderr.Len() != 0 || !strings.Contains(out.String(), "\n"+tc.want.text("用法")+"\n") {
+				t.Fatalf("help code=%d out=%q stderr=%q", code, out.String(), stderr.String())
+			}
+			result, code := agentRun(t, context.Background(), []string{"scan"}, nil)
+			if code != 2 || result.Error == nil || result.Error.Code != "invalid_config" || !strings.HasPrefix(result.Error.Message, "Cannot parse the configuration file") {
+				t.Fatalf("invalid config code=%d result=%+v", code, result)
+			}
+			result, code = agentRun(t, context.Background(), []string{"scan", "--help"}, nil)
+			if code != 0 || result.Help != renderAgentHelp("scan") {
+				t.Fatal("invalid configuration prevented Agent help", code, result)
+			}
+		})
+	}
+	t.Setenv("HOME", t.TempDir())
+	path, _ := configPath()
+	if err := os.MkdirAll(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if got := configuredLanguage(); got != english {
+		t.Fatal("non-regular configuration did not fall back", got)
+	}
+}
+
+func TestLanguageHelpSurvivesBrokenConfigWithoutWritingUserData(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	path, _ := configPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {

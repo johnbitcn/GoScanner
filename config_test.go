@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -53,7 +54,7 @@ func TestLoadConfig(t *testing.T) {
 	if c, err := loadConfig(); err != nil || c != defaultConfig() || c.Scan.DPI != 150 || c.Scan.Timeout != "2m0s" || c.Output.Directory != "." {
 		t.Fatalf("missing config: %+v, %v", c, err)
 	}
-	for _, data := range []string{"", "null", "[]", "{", `{"scan":{"dpi":"150"}}`, `{"scan":{"dppi":150}}`, `{"unknown":true}`, `{} {}`, `{} junk`} {
+	for _, data := range []string{"", "null", "[]", "{", `{"scan":{"dpi":"150"}}`, `{"scan":{"dppi":150}}`, `{"unknown":true}`, `{"language":"fr"}`, `{"language":""}`, `{"language":true}`, `{} {}`, `{} junk`} {
 		t.Run(data, func(t *testing.T) {
 			path := writeTestConfig(t, data)
 			if _, err := loadConfig(); err == nil || !strings.Contains(err.Error(), path) {
@@ -75,6 +76,20 @@ func TestLoadConfig(t *testing.T) {
 	writeTestConfig(t, string(example))
 	if c, err := loadConfig(); err != nil || c != defaultConfig() {
 		t.Fatalf("example differs from built-in defaults: %+v, %v", c, err)
+	}
+}
+
+func TestConfigLanguageAndDefaultDevicePreservation(t *testing.T) {
+	for _, value := range []string{"auto", "en", "zh-CN"} {
+		writeTestConfig(t, fmt.Sprintf(`{"language":%q,"scan":{"dpi":300}}`, value))
+		device := deviceConfig{Host: "192.168.1.8", Port: 8018, Path: "/wsd/scan"}
+		if err := saveDefaultDevice(device); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := loadConfig()
+		if err != nil || cfg.Language != value || cfg.Scan.DPI != 300 || cfg.Device.Host != device.Host {
+			t.Fatalf("saving default device changed language: %+v %v", cfg, err)
+		}
 	}
 }
 

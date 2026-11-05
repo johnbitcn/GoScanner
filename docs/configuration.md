@@ -8,6 +8,7 @@
 
 ```json
 {
+  "language": "auto",
   "device": {},
   "scan": {
     "dpi": 150,
@@ -32,6 +33,7 @@
 
 | 字段 | 默认值 | 用途与限制 |
 | --- | --- | --- |
+| `language` | `"auto"` | 人类界面语言：`auto`、`en` 或 `zh-CN`；Agent 的项目说明始终为英文 |
 | `device.record_id` | 无 | 引用设备表中的稳定记录。由程序登记，不需要手工生成；省略或 `device: {}` 表示没有默认设备 |
 | `scan.dpi` | `150` | 正整数，设备必须支持横向和纵向分辨率 |
 | `scan.mode` | `"color"` | `color` 或 `gray`，设备必须支持 |
@@ -63,10 +65,13 @@
 - **设备：** 显式 CLI 地址 > 默认设备引用 > 无默认设备。无默认设备时，TUI 打开设备列表；Agent 返回 `device_required`。
 - **协议：** 显式 `--protocol` > 设备列表首选协议 > 初始协议选择。首次确认双协议设备时首选 eSCL。
 - **扫描设置：** 显式 CLI 参数 > 配置文件 > 内置默认值。
+- **人类界面语言：** 显式 `--lang` > 配置 `language` > 系统语言自动检测。
 
 CLI 参数和 TUI 设置页只影响本次运行。设备列表按 `p` 修改的首选协议会持久保存。连接失败不自动换设备、换协议或重新提交扫描任务。
 
-界面语言不属于此 JSON 配置。用 `--lang en`、`--lang zh-CN` 或 `--lang auto` 选择本次人类界面语言；自动选择按 `LC_ALL` > `LC_MESSAGES` > `LANG` > 英文处理。语言选择不写配置，Agent 输出始终使用英文。完整规则见[界面与 Agent 输出](interfaces.md)。
+`language` 可以设为 `"en"`、`"zh-CN"` 或 `"auto"`。省略字段或设为 `"auto"` 时，按 `LC_ALL` > `LC_MESSAGES` > `LANG` 使用第一个非空环境变量；缺少或不支持时回退英文。显式 `--lang auto` 跳过配置中的固定语言，直接使用此自动检测规则。`--lang` 不写回配置；保存默认设备时保留已有 `language`。Agent 输出始终使用英文。
+
+人类帮助也使用此优先级，只提取语言字段，不应用或校验扫描设置。配置无法读取、JSON 损坏或语言值无效时，帮助回退到系统语言，显式 `--lang` 仍有效。正常执行命令仍严格校验配置；无效的 `language` 返回 `invalid_config`，不会静默执行扫描。Agent 帮助不读取配置。完整规则见[界面与 Agent 输出](interfaces.md)。
 
 例如，临时覆盖 DPI 和输出位置：
 

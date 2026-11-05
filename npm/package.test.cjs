@@ -164,9 +164,12 @@ test('launcher reports an English startup failure and preserves the external pat
   }
 });
 
-test('launcher startup diagnostics follow human language options and locale precedence', (t) => {
+test('launcher startup diagnostics follow options, configuration and locale precedence', (t) => {
   const root = fixture(t);
-  for (const { args = [], all = '', messages = '', lang = 'en_US.UTF-8', chinese } of [
+  const home = path.join(root, 'home');
+  const configPath = path.join(home, '.config', 'goscanner', 'config.json');
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  for (const { args = [], config, all = '', messages = '', lang = 'en_US.UTF-8', chinese } of [
     { chinese: false },
     { all: 'zh_CN.UTF-8', chinese: true },
     { all: 'C', messages: 'zh_CN', chinese: false },
@@ -181,8 +184,23 @@ test('launcher startup diagnostics follow human language options and locale prec
     { args: ['scan', '-o', '--lang', '--help'], chinese: false },
     { args: ['--help', '--lang=zh-CN'], chinese: false },
     { args: ['--agent', '--lang=zh-CN', 'scan'], all: 'zh_CN', chinese: false },
+    { config: '{"language":"zh-CN"}', chinese: true },
+    { config: '{"language":"en"}', all: 'zh_CN', chinese: false },
+    { config: '{"language":"auto"}', all: 'zh_CN', chinese: true },
+    { config: '{"language":"fr"}', all: 'zh_CN', chinese: true },
+    { config: 'broken config', all: 'zh_CN', chinese: true },
+    { config: '{"language":"zh-CN","scan":{"dpi":"bad"}}', chinese: true },
+    { config: '{"language":"zh-CN"}', args: ['--lang=en', 'scan'], chinese: false },
+    { config: '{"language":"en"}', args: ['scan', '--lang=zh-CN'], chinese: true },
+    { config: '{"language":"zh-CN"}', args: ['--lang=auto', 'scan'], chinese: false },
+    { config: '{"language":"en"}', args: ['scan', '--lang=auto'], all: 'zh_CN', chinese: true },
+    { config: '{"language":"zh-CN"}', args: ['scan', '-o', '--lang=en'], chinese: true },
+    { config: '{"language":"zh-CN"}', args: ['--help', '--lang=en'], chinese: true },
+    { config: '{"language":"zh-CN"}', args: ['--agent', 'scan'], all: 'zh_CN', chinese: false },
   ]) {
-    const result = run(root, args, { env: { ...process.env, LC_ALL: all, LC_MESSAGES: messages, LANG: lang } });
+    if (config === undefined) fs.rmSync(configPath, { force: true });
+    else fs.writeFileSync(configPath, config);
+    const result = run(root, args, { env: { ...process.env, HOME: home, LC_ALL: all, LC_MESSAGES: messages, LANG: lang } });
     assert.equal(result.status, 1, result.stderr);
     assert.equal(result.stdout, '');
     assert.ok(result.stderr.startsWith(chinese ? '无法启动 GoScanner。外部错误：' : 'Cannot start GoScanner. External error: '), JSON.stringify({ args, all, messages, lang, stderr: result.stderr }));

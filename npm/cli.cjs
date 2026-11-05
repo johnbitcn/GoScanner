@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 'use strict';
 
+const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { constants } = require('node:os');
+const { constants, homedir } = require('node:os');
 
 const runtime = path.resolve(__dirname, '..', 'runtime');
 const { model, onnxruntime } = require('./dependencies.json');
@@ -30,6 +31,15 @@ function startupUsesChinese() {
   const args = process.argv.slice(2);
   if (args[0] === '--agent') return false;
   let language = 'auto';
+  try {
+    const configPath = path.join(homedir(), '.config', 'goscanner', 'config.json');
+    if (fs.statSync(configPath).isFile()) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      if (['auto', 'en', 'zh-CN'].includes(config?.language)) language = config.language;
+    }
+  } catch {
+    // Broken configuration must not hide the startup failure.
+  }
   const valueOptions = new Set(['--host', '--protocol', '--scheme', '--port', '--path', '--endpoint', '--dpi', '--mode', '--area', '-o', '--timeout']);
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];

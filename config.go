@@ -16,8 +16,9 @@ import (
 const defaultScanTimeout = 2 * time.Minute
 
 type config struct {
-	Device deviceConfig `json:"device"`
-	Scan   struct {
+	Language string       `json:"language"`
+	Device   deviceConfig `json:"device"`
+	Scan     struct {
 		DPI     int    `json:"dpi"`
 		Mode    string `json:"mode"`
 		Area    string `json:"area"`
@@ -35,6 +36,7 @@ type config struct {
 
 func defaultConfig() config {
 	var c config
+	c.Language = "auto"
 	c.Device.Port, c.Device.Path = 8018, "/wsd/scan"
 	c.Scan.DPI, c.Scan.Mode, c.Scan.Area = 150, "color", "a4"
 	c.Scan.Timeout = defaultScanTimeout.String()
@@ -79,6 +81,9 @@ func decodeConfig(data []byte, path string) (config, error) {
 		if trailing := decoder.Decode(&extra); trailing != io.EOF {
 			err = diagnosticf("The configuration file must contain exactly one JSON object.", "配置文件只能包含一个 JSON 对象")
 		}
+	}
+	if err == nil {
+		_, err = selectLanguage(c.Language)
 	}
 	if err != nil {
 		return c, diagnosticf("Cannot parse the configuration file %q: %w", "解析配置文件 %s：%w", path, err)

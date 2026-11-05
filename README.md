@@ -41,7 +41,7 @@ goscanner info --help
 goscanner discover --help
 ```
 
-顶层帮助只显示导航和常用示例；子命令帮助按用途分组。说明自动换行并对齐，窄终端改为上下排列。帮助不读取配置、不查询设备、不清屏，也不启用分页器。
+顶层帮助只显示导航和常用示例；子命令帮助按用途分组。说明自动换行并对齐，窄终端改为上下排列。人类帮助仅读取配置中的语言设置，不查询设备、不清屏，也不启用分页器；配置损坏时仍可显示帮助。
 
 在交互终端中，普通命令使用内联 TUI，不进入全屏界面。标准输入或输出不是终端，或 `TERM=dumb` 时，使用普通文本模式；**重定向不会自动启用 Agent 模式**。`NO_COLOR=1` 可关闭颜色。
 
@@ -55,9 +55,11 @@ goscanner --lang en scan --help
 goscanner scan --lang zh-CN -o 合同.pdf
 ```
 
-`--lang` 接受 `auto`、`en`、`zh-CN`，只影响本次运行，不写入配置。默认 `auto` 按 `LC_ALL`、`LC_MESSAGES`、`LANG` 的顺序使用第一个非空值；缺少或不支持的语言回退英文。需要保持此前的中文显示时，显式使用 `--lang zh-CN`。查看帮助时，把语言参数放在 `--help` 前。
+语言选择顺序：**显式 `--lang` > 配置文件的 `language` > 系统语言自动检测**。参数和配置都接受 `auto`、`en`、`zh-CN`。未设置配置字段时使用 `auto`；自动检测按 `LC_ALL`、`LC_MESSAGES`、`LANG` 使用第一个非空值，缺少或不支持时回退英文。
 
-Agent 的项目说明始终使用英文，不受 `--lang` 或系统语言影响。设备名称、路径、用户输入和外部原始诊断不强制翻译。完整规则见[界面与 Agent 输出](docs/interfaces.md)。
+可在已有 `~/.config/goscanner/config.json` 中增加 `"language": "zh-CN"`，固定使用中文。`--lang en` 只覆盖本次运行，不写入配置；显式 `--lang auto` 跳过配置中的固定语言，直接自动检测。查看帮助时，把语言参数放在 `--help` 前。
+
+Agent 的项目说明始终使用英文，不受 `--lang`、配置中的 `language` 或系统语言影响。设备名称、路径、用户输入和外部原始诊断不强制翻译。完整规则见[界面与 Agent 输出](docs/interfaces.md)。
 
 ### `goscanner`：交互扫描
 

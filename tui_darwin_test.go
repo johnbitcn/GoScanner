@@ -20,8 +20,10 @@ import (
 )
 
 func TestHumanPTY(t *testing.T) {
-	for _, scenario := range []string{"scan", "manual", "cancel-wait", "cancel-active", "preset-recheck", "settings-list", "color", "default-manual", "single-page", "manual-device", "saved-device", "en/scan", "en/manual", "en/cancel-active", "en/settings-list", "en/manual-device"} {
+	for _, scenario := range []string{"scan", "manual", "cancel-wait", "cancel-active", "preset-recheck", "settings-list", "color", "default-manual", "single-page", "manual-device", "saved-device", "en/scan", "en/manual", "en/cancel-active", "en/settings-list", "en/manual-device", "config-en/scan"} {
 		name, lang := scenario, chinese
+		fromConfig := strings.HasPrefix(scenario, "config-")
+		scenario = strings.TrimPrefix(scenario, "config-")
 		if strings.HasPrefix(scenario, "en/") {
 			scenario, lang = strings.TrimPrefix(scenario, "en/"), english
 		}
@@ -110,7 +112,17 @@ func TestHumanPTY(t *testing.T) {
 			if scenario == "single-page" {
 				args = append(args, "--manual=false")
 			}
-			args = append(args, "--lang", lang.String())
+			if fromConfig {
+				configPath := filepath.Join(dir, ".config", "goscanner", "config.json")
+				if err := os.MkdirAll(filepath.Dir(configPath), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(configPath, []byte(`{"language":"en"}`), 0600); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				args = append(args, "--lang", lang.String())
+			}
 			cmd := exec.CommandContext(ctx, os.Args[0], args...)
 			cmd.Env = append(os.Environ(), "GOSCANNER_TEST_MANUAL_CHILD=1", "HOME="+dir, "XDG_CACHE_HOME="+dir, "TERM=xterm-256color", "NO_COLOR=1")
 			if scenario == "manual-device" {
@@ -299,6 +311,12 @@ func TestHumanPTY(t *testing.T) {
 				assertPDF(t, path, wantPages)
 			} else if _, err := os.Stat(path); !os.IsNotExist(err) {
 				t.Fatal("unexpected output", err)
+			}
+			if fromConfig {
+				data, err := os.ReadFile(filepath.Join(dir, ".config", "goscanner", "config.json"))
+				if err != nil || string(data) != `{"language":"en"}` {
+					t.Fatal("TUI modified the configured language", string(data), err)
+				}
 			}
 			var mode syscall.Termios
 			if err := terminalMode(keys.file, getTerminalMode, &mode); err != nil {

@@ -178,7 +178,7 @@ func helpContent(command string, lang language) (string, []helpSection) {
 			{"常用示例", []helpItem{{text: "goscanner"}, {text: "goscanner scan -o 文档.pdf"}, {text: "goscanner --agent info"}}},
 			{"全局选项", []helpItem{
 				{"--agent", "无交互模式，输出 JSON；必须放在命令前", ""},
-				{"--lang LANG", "人类界面语言：auto、en 或 zh-CN；Agent 输出始终使用英文。", "auto"},
+				{"--lang LANG", "人类界面语言：auto、en 或 zh-CN；覆盖配置 language；auto 直接检测系统语言。Agent 输出始终使用英文。", "配置或系统语言"},
 				{"-h, --help", "显示帮助", ""},
 			}},
 			{"配置", []helpItem{{text: "~/.config/goscanner/config.json"}}},
@@ -234,7 +234,7 @@ func helpContent(command string, lang language) (string, []helpSection) {
 		}})
 	}
 	sections = append(sections, helpSection{"帮助", []helpItem{
-		{"--lang LANG", "人类界面语言：auto、en 或 zh-CN；Agent 输出始终使用英文。", "auto"},
+		{"--lang LANG", "人类界面语言：auto、en 或 zh-CN；覆盖配置 language；auto 直接检测系统语言。Agent 输出始终使用英文。", "配置或系统语言"},
 		{"-h, --help", "显示当前命令的帮助", ""},
 	}})
 	switch command {
