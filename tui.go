@@ -394,6 +394,8 @@ func (m *humanModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *humanModel) View() tea.View {
 	width := max(10, m.width-2)
+	layout := newTUIFieldLayout(width, m.lang.text("设备"), m.lang.text("设置"), m.lang.text("选项"), m.lang.text("输出"),
+		m.lang.text("状态"), m.lang.text("检查"), m.lang.text("文件"), m.lang.text("提示"))
 	lines := []string{m.styles.accent.Render("GoScanner"), ""}
 	footer := m.lang.text("Ctrl+C 取消")
 	switch m.state {
@@ -408,11 +410,13 @@ func (m *humanModel) View() tea.View {
 		if m.state == "unavailable" {
 			status = m.styles.warning.Render(m.status)
 		}
-		lines = append(lines, m.lang.text("设备  ")+m.deviceLabel(m.request.endpoint, width-ansi.StringWidth(m.lang.text("设备  "))),
-			fmt.Sprintf(m.lang.text("设置  %s · %s · %d DPI"), terminalText(m.request.area), terminalText(m.request.opts.Mode), m.request.opts.DPI),
-			fmt.Sprintf(m.lang.text("选项  %s · %s · %s · %s"), checkbox(m.request.manual, m.lang.text("连续")), checkbox(m.request.singlePage, m.lang.text("独立 PDF")), checkbox(m.request.opts.Deskew, m.lang.text("纠偏")), checkbox(m.request.opts.Autocrop, m.lang.text("裁切"))),
-			m.lang.text("输出  ")+m.styles.value.Render(terminalText(m.request.output)), "", m.lang.text("状态  ")+status,
-			m.styles.muted.Render(fmt.Sprintf(m.lang.text("检查  %s（按 r 更新）"), m.checkedAt.Format("15:04:05"))))
+		options := []string{checkbox(m.request.manual, m.lang.text("连续")), checkbox(m.request.singlePage, m.lang.text("独立 PDF")),
+			checkbox(m.request.opts.Deskew, m.lang.text("纠偏")), checkbox(m.request.opts.Autocrop, m.lang.text("裁切"))}
+		lines = append(lines, layout.row(m.lang.text("设备"), m.deviceLabel(m.request.endpoint, layout.valueWidth)),
+			layout.row(m.lang.text("设置"), fmt.Sprintf("%s · %s · %d DPI", terminalText(m.request.area), terminalText(m.request.opts.Mode), m.request.opts.DPI)),
+			layout.row(m.lang.text("选项"), wrapTUIItems(options, layout.valueWidth)),
+			layout.row(m.lang.text("输出"), m.styles.value.Render(terminalText(m.request.output))), "", layout.row(m.lang.text("状态"), status),
+			layout.row(m.styles.muted.Render(m.lang.text("检查")), m.styles.muted.Render(fmt.Sprintf(m.lang.text("%s（按 r 更新）"), m.checkedAt.Format("15:04:05")))))
 		footer = m.lang.text("r 重新检查 · d 更换设备 · s 设置 · q 退出")
 		if m.state == "ready" {
 			footer = m.lang.text("Enter 开始扫描 · ") + footer
@@ -447,9 +451,9 @@ func (m *humanModel) View() tea.View {
 		if m.validatingEndpoint != "" {
 			endpoint = m.validatingEndpoint
 		}
-		lines = append(lines, m.lang.text("设备  ")+m.deviceLabel(endpoint, width-ansi.StringWidth(m.lang.text("设备  "))), m.lang.text("状态  ")+status)
+		lines = append(lines, layout.row(m.lang.text("设备"), m.deviceLabel(endpoint, layout.valueWidth)), layout.row(m.lang.text("状态"), status))
 		if m.latest != "" {
-			lines = append(lines, m.lang.text("文件  ")+m.styles.value.Render(terminalText(m.latest)))
+			lines = append(lines, layout.row(m.lang.text("文件"), m.styles.value.Render(terminalText(m.latest))))
 		}
 		if m.state == "waiting" {
 			footer = m.lang.text("Enter 扫描下一页 · Esc 结束并保存 · Ctrl+C 取消")
@@ -466,9 +470,9 @@ func (m *humanModel) View() tea.View {
 		}
 	}
 	if m.notice != "" {
-		lines = append(lines, m.styles.warning.Render(m.lang.text("提示  ")+terminalText(m.notice)))
+		lines = append(lines, layout.row(m.styles.warning.Render(m.lang.text("提示")), m.styles.warning.Render(terminalText(m.notice))))
 	}
-	lines = append(lines, "", m.styles.muted.Render(footer))
+	lines = append(lines, "", m.styles.muted.Render(wrapTUIItems(strings.Split(footer, " · "), width)))
 	view := tea.NewView(m.styles.text.Width(width).Render(strings.Join(lines, "\n")))
 	view.ReportFocus = m.autoTheme()
 	return view

@@ -417,7 +417,7 @@ func TestHumanCatalogCoversSourceTemplates(t *testing.T) {
 		}
 		assertNoChinese(t, translated)
 	}
-	paths := []string{"theme.go", "tui.go", "tui_devices.go", "tui_device_list.go", "tui_settings.go", "pages.go", "device_selection.go", "keyboard.go", "help.go", "i18n.go", "command.go"}
+	paths := []string{"theme.go", "tui.go", "tui_layout.go", "tui_devices.go", "tui_device_list.go", "tui_settings.go", "pages.go", "device_selection.go", "keyboard.go", "help.go", "i18n.go", "command.go"}
 	for _, path := range paths {
 		file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 		if err != nil {
